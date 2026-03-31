@@ -1,4 +1,4 @@
-function CoppeliaSim_learn_ditch()
+function CoppeliaSim_learn_ditch(export_meta)
 % =========================================================================
 % CoppeliaSim_learn_ditch.m —— 六足机器人深沟跨越闭环控制系统 (最终版)
 % 
@@ -9,8 +9,12 @@ function CoppeliaSim_learn_ditch()
 %   4. 重心位姿管理：包含跨坑重心前移 (CoG Shift) 保护机制。
 % =========================================================================
 
+if nargin < 1 || isempty(export_meta)
+    export_meta = struct();
+end
+
 %% 1. 环境准备与数据加载
-clear; clc; close all;
+clc; close all;
 
 % 作为独立入口运行时，先把项目根目录及其子目录加入搜索路径，
 % 否则在干净 MATLAB 会话里找不到 lib/MatlabVrep.m 等依赖。
@@ -26,9 +30,31 @@ project_root = fileparts(fileparts(fileparts(fileparts(mfilename('fullpath')))))
 base_path = fullfile(fileparts(mfilename('fullpath')), 'export_data', 'xyz_base.mat');
 load(base_path, 'xq', 'x0', 'y0', 'z0', 'xb', 'yb', 'zb', 'zf0');
 
+natural_total_frames = numel(xq);
+target_total_frames = natural_total_frames;
+if isfield(export_meta, 'target_total_frames') && ~isempty(export_meta.target_total_frames)
+    target_total_frames = export_meta.target_total_frames;
+end
+if target_total_frames ~= natural_total_frames
+    xq = hexapod_resample_series(xq, target_total_frames, 2);
+    x0 = hexapod_resample_series(x0, target_total_frames, 2);
+    y0 = hexapod_resample_series(y0, target_total_frames, 2);
+    z0 = hexapod_resample_series(z0, target_total_frames, 2);
+    xb = hexapod_resample_series(xb, target_total_frames, 2);
+    yb = hexapod_resample_series(yb, target_total_frames, 2);
+    zb = hexapod_resample_series(zb, target_total_frames, 2);
+end
+
 Data_Num = length(xq); 
 Control_T = 5; 
-vrobot = MatlabVrep(Control_T);
+legacy_port = 19997;
+if isstruct(export_meta) && isfield(export_meta, 'coppeliasim_port') && ~isempty(export_meta.coppeliasim_port) && ~isnan(export_meta.coppeliasim_port)
+    legacy_port = export_meta.coppeliasim_port;
+end
+vrobot = MatlabVrep(Control_T, legacy_port);
+if legacy_port > 19999
+    vrobot.Close_All_Connections_Before_Init = true;
+end
 vrobot = vrobot.init();
 
 % 设置初始机身高度与位姿
@@ -128,12 +154,18 @@ sim_frame = 1;
 WARMUP_FRAMES = 30; 
 NOMINAL_BODY_Z = 2.7; 
 
-realX_log = []; realY_log = []; realZ_log = [];
+max_log_frames = size(Joint_Learned, 1);
+realX_log = NaN(max_log_frames, 1); realY_log = NaN(max_log_frames, 1); realZ_log = NaN(max_log_frames, 1);
+bodyRoll_log = NaN(max_log_frames, 1);
+bodyPitch_log = NaN(max_log_frames, 1);
+bodyYaw_log = NaN(max_log_frames, 1);
+recover_count_total = 0;
 real_body = [xb(1); yb(1); NOMINAL_BODY_Z];
 air_count = zeros(1, 6);               % 支撑相连续失载计数器
 
 %% 3. 主仿真循环
 while kk <= Data_Num
+    recovering_prev = is_recovering;
     
     [F, ~] = vrobot.get_force_sensor();
     [~, real_body] = vrobot.Main.simxGetObjectPosition(vrobot.ClientID, vrobot.Body_Handle, -1, vrobot.Main.simx_opmode_oneshot);
@@ -715,6 +747,7 @@ while kk <= Data_Num
         robot_ik = ik_collision(robot_ik, Target, c_id);
         for j = 1:3; Joint_Learned(sim_frame, j + 3*leg - 3) = robot_ik(j + 3*leg - 2).q; end
     end
+    recover_count_total = recover_count_total + sum(is_recovering & ~recovering_prev);
     
     % 执行物理指令推送
     vrobot.Joint = Joint_Learned(sim_frame, :);
@@ -738,6 +771,14 @@ while kk <= Data_Num
     else
         realX_log(sim_frame) = NaN; realY_log(sim_frame) = NaN; realZ_log(sim_frame) = NaN;
     end
+    body_eul = vrobot.get_body_eul();
+    if exist('body_eul', 'var') && numel(body_eul) == 3
+        bodyRoll_log(sim_frame) = body_eul(1) * 180 / pi;
+        bodyPitch_log(sim_frame) = body_eul(2) * 180 / pi;
+        bodyYaw_log(sim_frame) = body_eul(3) * 180 / pi;
+    else
+        bodyRoll_log(sim_frame) = NaN; bodyPitch_log(sim_frame) = NaN; bodyYaw_log(sim_frame) = NaN;
+    end
 
     % 物理同步机制：探测深坑期间强制暂停步态时钟
     if ~any(is_recovering) && ~any(probe_wait > 0)
@@ -760,28 +801,93 @@ Joint_Learned(sim_frame:end, :) = [];
 fprintf('\n闭环示教完成！(总实际物理帧数：%d)\n', size(Joint_Learned, 1));
 learned_path = fullfile(fileparts(mfilename('fullpath')), 'export_data', 'walk_ditch_learned.mat');
 save(learned_path, 'Joint_Learned');
-fprintf('已保存: %s\n', learned_path);
+fprintf('Saved: %s\n', learned_path);
 
-%% ================= 绘图与摘要生成 =================
-cleanup_and_export(run_start_now, run_start_str, run_end_str, wall_time_sec, realX_log, realY_log, realZ_log, FL1, FL2, FL3, FR1, FR2, FR3, Joint_Learned, Control_T, learned_path, project_root);
+artifact_learned_path = learned_path;
+if isfield(export_meta, 'artifact_output_dir') && ~isempty(export_meta.artifact_output_dir)
+    if ~exist(export_meta.artifact_output_dir, 'dir')
+        mkdir(export_meta.artifact_output_dir);
+    end
+    artifact_learned_path = fullfile(export_meta.artifact_output_dir, 'ditch_final_closed_loop_joint_used.mat');
+    save(artifact_learned_path, 'Joint_Learned');
 end
 
-function cleanup_and_export(run_start_now, run_start_str, run_end_str, wall_time_sec, realX_log, realY_log, realZ_log, FL1, FL2, FL3, FR1, FR2, FR3, Joint_Learned, Control_T, learned_path, project_root)
-    F_all = FL1+FL2+FL3+FR1+FR2+FR3;
-    h_fig1 = figure('Name', '各腿末端受力', 'NumberTitle', 'off', 'Visible', 'off');
-    subplot(2,3,1); plot(FL1(:,3)); title('左腿1受力'); subplot(2,3,2); plot(FL2(:,3)); title('左腿2受力');
-    subplot(2,3,3); plot(FL3(:,3)); title('左腿3受力'); subplot(2,3,4); plot(FR1(:,3)); title('右腿1受力');
-    subplot(2,3,5); plot(FR2(:,3)); title('右腿2受力'); subplot(2,3,6); plot(FR3(:,3)); title('右腿3受力');
-    
-    h_fig3 = figure('Name', '轨迹追踪', 'NumberTitle', 'off', 'Visible', 'off');
-    subplot(3,1,1); plot(realX_log); title('X 位移'); subplot(3,1,2); plot(realY_log); title('Y 偏航');
-    subplot(3,1,3); plot(realX_log, realZ_log); title('Z-X 垂直面轨迹');
-
-    log_root = fullfile(project_root, 'log');
-    run_output_dir = fullfile(log_root, datestr(run_start_now, 'yymmdd'), sprintf('%s_learn', datestr(run_start_now, 'HH.MM')));
-    if ~exist(run_output_dir, 'dir'), mkdir(run_output_dir); end
-    
-    saveas(h_fig1, fullfile(run_output_dir, 'leg_force.png'));
-    saveas(h_fig3, fullfile(run_output_dir, 'trajectory.png'));
-    fprintf('仿真图表已存入 %s\n', run_output_dir);
+%% ================= 统一指标导出 =================
+scene_info = hexapod_scene_info('ditch');
+if exist('FR1', 'var') && ~isempty(FR1)
+    leg_force_mag = [FR1(:,3), FR2(:,3), FR3(:,3), FL1(:,3), FL2(:,3), FL3(:,3)];
+else
+    leg_force_mag = zeros(0, 6);
 end
+
+telemetry = struct();
+logged_frame_count = max(sim_frame - 1, 0);
+telemetry.realX = realX_log(1:logged_frame_count);
+telemetry.realY = realY_log(1:logged_frame_count);
+telemetry.realZ = realZ_log(1:logged_frame_count);
+telemetry.bodyEulerDeg = [bodyRoll_log(1:logged_frame_count), bodyPitch_log(1:logged_frame_count), bodyYaw_log(1:logged_frame_count)];
+telemetry.legForceMag = leg_force_mag;
+telemetry.control_dt_sec = Control_T / 1000;
+telemetry.extra = struct();
+telemetry.extra.recover_count_total = recover_count_total;
+telemetry.extra.learned_path = learned_path;
+
+meta = struct();
+meta.scene_name = scene_info.scene_name;
+meta.scene_label = scene_info.scene_label;
+meta.scene_variant = 'current_ditch';
+meta.source_flow = 'CoppeliaSim_learn_ditch';
+meta.entry_pattern = 'ditch';
+meta.run_now = run_start_now;
+meta.run_timestamp = run_start_str;
+meta.control_dt_ms = Control_T;
+meta.run_end_str = run_end_str;
+meta.wall_time_sec = wall_time_sec;
+meta.learned_path = learned_path;
+meta.natural_total_frames = natural_total_frames;
+meta.target_total_frames = target_total_frames;
+meta.source_artifact_path = artifact_learned_path;
+meta.frame_normalization = 'resampled_reference';
+if target_total_frames == natural_total_frames
+    meta.frame_normalization = 'none';
+end
+
+if isfield(export_meta, 'scene_name') && ~isempty(export_meta.scene_name)
+    meta.scene_name = export_meta.scene_name;
+end
+if isfield(export_meta, 'scene_label') && ~isempty(export_meta.scene_label)
+    meta.scene_label = export_meta.scene_label;
+end
+if isfield(export_meta, 'scene_variant') && ~isempty(export_meta.scene_variant)
+    meta.scene_variant = export_meta.scene_variant;
+end
+if isfield(export_meta, 'source_flow') && ~isempty(export_meta.source_flow)
+    meta.source_flow = export_meta.source_flow;
+end
+if isfield(export_meta, 'entry_pattern') && ~isempty(export_meta.entry_pattern)
+    meta.entry_pattern = export_meta.entry_pattern;
+end
+copy_fields = {'compare_group_id', 'case_id', 'case_description', 'repeat_index', ...
+    'target_total_frames', 'natural_total_frames', 'source_artifact_path', ...
+    'frame_normalization', 'output_dir'};
+for copy_idx = 1:numel(copy_fields)
+    field_name = copy_fields{copy_idx};
+    if isfield(export_meta, field_name) && ~isempty(export_meta.(field_name))
+        meta.(field_name) = export_meta.(field_name);
+    end
+end
+
+[metrics, run_output_dir] = hexapod_export_metrics(project_root, telemetry, meta);
+
+fprintf('统一指标文件已保存：\n');
+fprintf('  输出目录: %s\n', run_output_dir);
+fprintf('  指标文件: %s\n', fullfile(run_output_dir, 'metrics.mat'));
+fprintf('  摘要文件: %s\n', fullfile(run_output_dir, 'metrics_summary.md'));
+fprintf('  场景类别: %s (%s)\n', metrics.meta.scene_name, metrics.meta.scene_label);
+fprintf('  避险恢复总次数: %.0f\n', metrics.scene.recover_count_total);
+end
+
+
+
+
+
