@@ -1,4 +1,4 @@
-function CoppeliaSim_learn_ditch(export_meta)
+﻿function CoppeliaSim_learn_ditch(export_meta)
 % =========================================================================
 % CoppeliaSim_learn_ditch.m —— 六足机器人深沟跨越闭环控制系统 (最终版)
 % 
@@ -16,17 +16,21 @@ end
 %% 1. 环境准备与数据加载
 clc; close all;
 
-% 作为独立入口运行时，先把项目根目录及其子目录加入搜索路径，
-% 否则在干净 MATLAB 会话里找不到 lib/MatlabVrep.m 等依赖。
-project_root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
-addpath(genpath(project_root));
+% 作为独立入口运行时，仅引导到统一路径初始化入口，避免散乱的 genpath 依赖。
+project_root = fileparts(fileparts(fileparts(fileparts(mfilename('fullpath')))));
+setup_dir = fullfile(project_root, 'lib', 'setup');
+current_paths = string(strsplit(path, pathsep));
+if ~any(strcmp(current_paths, string(setup_dir)))
+    addpath(setup_dir);
+end
+setup_info = hexapod_setup_paths();
+project_root = setup_info.project_root;
 fprintf('--- 启动完全体物理示教模式 (Hexapod Ditch Crossing v4) ---\n');
 
 run_start_str = datestr(now,'yyyy-mm-dd HH:MM:SS');
 run_start_now = now;
 run_timer = tic;
 
-project_root = fileparts(fileparts(fileparts(fileparts(mfilename('fullpath')))));
 base_path = fullfile(fileparts(mfilename('fullpath')), 'export_data', 'xyz_base.mat');
 load(base_path, 'xq', 'x0', 'y0', 'z0', 'xb', 'yb', 'zb', 'zf0');
 
@@ -886,6 +890,7 @@ fprintf('  摘要文件: %s\n', fullfile(run_output_dir, 'metrics_summary.md'));
 fprintf('  场景类别: %s (%s)\n', metrics.meta.scene_name, metrics.meta.scene_label);
 fprintf('  避险恢复总次数: %.0f\n', metrics.scene.recover_count_total);
 end
+
 
 
 

@@ -1,9 +1,0 @@
-﻿function command_text = hexapod_build_coppeliasim_stop_command(process_name)
-if nargin < 1 || isempty(process_name)
-    process_name = 'coppeliaSim';
-end
-command_text = sprintf([ ...
-    '$p = Get-Process -Name ''%s'' -ErrorAction SilentlyContinue; ' ...
-    'if ($p) { $p | Stop-Process -Force; exit 0 } ' ...
-    'else { Write-Output ''no-process''; exit 0 }'], process_name);
-end

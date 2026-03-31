@@ -1,7 +1,8 @@
-function [Joint, Pitch] = PG(pattern)
+﻿function [Joint, Pitch] = PG(pattern)
 rad2deg=180/pi;
 num=length(pattern);
 step_time=0.005;
+export_data_dir = fullfile(fileparts(mfilename('fullpath')), '6leg_motion', 'export_data');
 Joint=cell(num,1);
 Pitch=cell(num,1);
 robot=robot3D_description;
@@ -25,23 +26,23 @@ for ii=1:num
             Joint{ii} = walk(period_time,step_time);
         case 'climb2wall'
             % b=load('joint1.mat');
-            b=load('walk3step_high.mat');
+            b = load(fullfile(export_data_dir, 'walk3step_high.mat'));
             Joint{ii} =b.joint;
         case 'climbing'
             % b=load('joint3_1.mat');
-            b = load('dais3step.mat');%_2
+            b = load(fullfile(export_data_dir, 'origin', 'dais3step.mat'));%_2
             Joint{ii} =b.joint;
         case 'Legstretch'
             period_time=1;
              Joint{ii}=hello1(01,period_time,step_time);
         case 'slope'  %% 15度斜坡地形
-            b = load('walk_slope.mat');
+            b = load(fullfile(export_data_dir, 'walk_slope.mat'));
             Joint{ii} = b.joint;
             if isfield(b, 'pitch0')
                 Pitch{ii} = b.pitch0;
             end
         case 'ditch'  %% 深沟地形（50cm宽，50cm深）
-            b = load('walk_ditch.mat');
+            b = load(fullfile(export_data_dir, 'walk_ditch.mat'));
             Joint{ii} = b.joint;
 %         case 'passive_front_fall'
 %             period_time=1;
@@ -169,4 +170,5 @@ for ii=1:num
     end
 end
 end
+
 

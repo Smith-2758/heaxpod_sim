@@ -1,8 +1,9 @@
-function robot=robot3D_description()
-load('under_joint_position.mat');
-load('com.mat')
-load('Inertia.mat');
-load('mass.mat')
+﻿function robot=robot3D_description()
+data_dir = fullfile(fileparts(mfilename('fullpath')), '动力学属性');
+load(fullfile(data_dir, 'under_joint_position.mat'));
+load(fullfile(data_dir, 'com.mat'))
+load(fullfile(data_dir, 'Inertia.mat'));
+load(fullfile(data_dir, 'mass.mat'))
 
 com7=(mass(7)*com(:,7)+mass(8)*com(:,8))/(mass(7)+mass(8));
 com14=(mass(14)*com(:,14)+mass(15)*com(:,15))/(mass(14)+mass(15));

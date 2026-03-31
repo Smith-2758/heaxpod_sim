@@ -1,4 +1,65 @@
-function summary = hexapod_collect_compare_metrics(log_root, options)
+﻿function out = hexapod_compare_report(action, varargin)
+bootstrap_setup_paths();
+if nargin < 1 || isempty(action)
+    error('hexapod_compare_report:MissingAction', '必须提供 action。');
+end
+action = char(string(action));
+
+switch action
+    case 'prepare_run_dir'
+        if numel(varargin) < 4
+            error('hexapod_compare_report:MissingPrepareArgs', 'prepare_run_dir 需要 project_root, scene_name, compare_group_id, case_id。');
+        end
+        repeat_index = 1;
+        if numel(varargin) >= 5 && ~isempty(varargin{5})
+            repeat_index = varargin{5};
+        end
+        [run_output_dir, group_root] = prepare_compare_run_dir(varargin{1}, varargin{2}, varargin{3}, varargin{4}, repeat_index);
+        out = {run_output_dir, group_root};
+    case 'collect_metrics'
+        log_root = [];
+        options = struct();
+        if numel(varargin) >= 1
+            log_root = varargin{1};
+        end
+        if numel(varargin) >= 2 && ~isempty(varargin{2})
+            options = varargin{2};
+        end
+        out = collect_compare_metrics(log_root, options);
+    otherwise
+        error('hexapod_compare_report:UnknownAction', '未知 action: %s', action);
+end
+end
+
+function [run_output_dir, group_root] = prepare_compare_run_dir(project_root, scene_name, compare_group_id, case_id, repeat_index)
+if nargin < 5 || isempty(repeat_index)
+    repeat_index = 1;
+end
+if nargin < 4 || isempty(case_id)
+    error('hexapod_compare_report:MissingCaseId', '必须提供 case_id。');
+end
+if nargin < 3 || isempty(compare_group_id)
+    error('hexapod_compare_report:MissingGroupId', '必须提供 compare_group_id。');
+end
+
+scene_info = hexapod_scene_info(scene_name);
+group_root = fullfile(project_root, 'log', scene_info.scene_name, compare_group_id);
+case_root = fullfile(group_root, case_id);
+if ~exist(case_root, 'dir')
+    mkdir(case_root);
+end
+
+run_id = sprintf('run_%02d_%s', repeat_index, datestr(now, 'yyyymmdd_HHMMSS'));
+run_output_dir = fullfile(case_root, run_id);
+suffix_id = 1;
+while exist(run_output_dir, 'dir')
+    run_output_dir = fullfile(case_root, sprintf('%s_%02d', run_id, suffix_id));
+    suffix_id = suffix_id + 1;
+end
+mkdir(run_output_dir);
+end
+
+function summary = collect_compare_metrics(log_root, options)
 if nargin < 1 || isempty(log_root)
     project_root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
     log_root = fullfile(project_root, 'log');
@@ -245,7 +306,7 @@ end
 function write_summary_md(md_path, latest_table, aggregate_table, compare_group_id)
 fid = fopen(md_path, 'w', 'n', 'UTF-8');
 if fid == -1
-    warning('hexapod_collect_compare_metrics:WriteFailed', '无法写入摘要文件: %s', md_path);
+    warning('hexapod_compare_report:WriteFailed', '无法写入摘要文件: %s', md_path);
     return;
 end
 cleanupObj = onCleanup(@() fclose(fid)); %#ok<NASGU>
@@ -305,4 +366,14 @@ end
 if isempty(sort_key) || isnan(sort_key)
     sort_key = fallback_datenum;
 end
+end
+
+function bootstrap_setup_paths()
+project_root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
+setup_dir = fullfile(project_root, 'lib', 'setup');
+current_paths = string(strsplit(path, pathsep));
+if ~any(strcmp(current_paths, string(setup_dir)))
+    addpath(setup_dir);
+end
+hexapod_setup_paths();
 end
