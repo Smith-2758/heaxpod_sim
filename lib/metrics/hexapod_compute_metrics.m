@@ -25,8 +25,13 @@ end
 dt = get_control_dt_sec(telemetry, meta);
 body_euler = align_matrix(get_struct_field(telemetry, 'bodyEulerDeg', []), sample_count, 3, NaN);
 leg_force = align_matrix(get_struct_field(telemetry, 'legForceMag', []), sample_count, 6, NaN);
+foot_pos_xyz = align_matrix(get_struct_field(telemetry, 'footPosXYZ', []), sample_count, 18, NaN);
+leg_force_xyz = align_matrix(get_struct_field(telemetry, 'legForceXYZ', []), sample_count, 18, NaN);
 [x, y, z, body_euler, leg_force] = trim_leading_position_placeholders(x, y, z, body_euler, leg_force);
 sample_count = numel(x);
+
+foot_pos_xyz = align_matrix(foot_pos_xyz, sample_count, 18, NaN);
+leg_force_xyz = align_matrix(leg_force_xyz, sample_count, 18, NaN);
 
 time_s = ((0:sample_count - 1)' .* dt);
 valid_pos_mask = ~(isnan(x) | isnan(y) | isnan(z));
@@ -60,6 +65,11 @@ leg_force_peak_N = max_without_nan(leg_force(:));
 time_speed_s = ((1:numel(speed_series))' .* dt);
 stage_mask = false(sample_count, 1);
 
+zmp_cfg = hexapod_zmp_defaults();
+[zmp_x, zmp_y, stance_count, zmp_inside_polygon_flag, polygon_valid, ...
+    stability_margin, front_margin, lateral_offset] = ...
+    compute_zmp_metrics_series(foot_pos_xyz, leg_force_xyz, leg_force, zmp_cfg);
+
 common = struct();
 common.success_flag = 0;
 common.track_distance_m = track_distance_m;
@@ -76,6 +86,11 @@ common.yaw_drift_deg = yaw_drift_deg(yaw_deg);
 common.total_force_peak_N = max_without_nan(total_force_series);
 common.total_force_rms_N = rms_without_nan(total_force_series);
 common.leg_force_peak_N = leg_force_peak_N;
+common.zmp_margin_min_m = min_without_nan(stability_margin);
+common.zmp_margin_mean_m = mean_without_nan(stability_margin);
+common.zmp_critical_frame_ratio = mean_logical_without_nan(stability_margin < zmp_cfg.SM_critical, stability_margin);
+common.zmp_outside_count = sum_logical_without_nan(stability_margin < 0, stability_margin);
+common.stance_count_mean = mean_without_nan(stance_count);
 
 scene = struct();
 valid_indices = find(valid_pos_mask);
@@ -155,6 +170,61 @@ metrics.series.yaw_deg = yaw_deg;
 metrics.series.leg_force_N = leg_force;
 metrics.series.total_force_N = total_force_series;
 metrics.series.scene_stage_mask = stage_mask;
+metrics.series.zmp_x = zmp_x;
+metrics.series.zmp_y = zmp_y;
+metrics.series.stance_count = stance_count;
+metrics.series.zmp_inside_polygon_flag = zmp_inside_polygon_flag;
+metrics.series.polygon_valid = polygon_valid;
+metrics.series.stability_margin = stability_margin;
+metrics.series.front_margin = front_margin;
+metrics.series.lateral_offset = lateral_offset;
+end
+
+function [zmp_x, zmp_y, stance_count, zmp_inside_polygon_flag, polygon_valid, ...
+    stability_margin, front_margin, lateral_offset] = compute_zmp_metrics_series(foot_pos_xyz, leg_force_xyz, leg_force_mag, zmp_cfg)
+sample_count = size(foot_pos_xyz, 1);
+zmp_x = NaN(sample_count, 1);
+zmp_y = NaN(sample_count, 1);
+stance_count = NaN(sample_count, 1);
+zmp_inside_polygon_flag = false(sample_count, 1);
+polygon_valid = false(sample_count, 1);
+stability_margin = NaN(sample_count, 1);
+front_margin = NaN(sample_count, 1);
+lateral_offset = NaN(sample_count, 1);
+
+prev_stance_mask = false(1, 6);
+
+for idx = 1:sample_count
+    foot_frame_flat = foot_pos_xyz(idx, :);
+    force_frame_flat = leg_force_xyz(idx, :);
+    if any(isnan(foot_frame_flat)) || any(isnan(force_frame_flat))
+        continue;
+    end
+
+    foot_frame = reshape(foot_frame_flat, 3, 6).';
+    force_frame = reshape(force_frame_flat, 3, 6).';
+
+    if idx <= size(leg_force_mag, 1)
+        force_mag_frame = leg_force_mag(idx, :);
+    else
+        force_mag_frame = vecnorm(force_frame, 2, 2).';
+    end
+
+    [stance_mask_frame, stance_count_frame] = hexapod_detect_stance_legs(force_mag_frame, prev_stance_mask, zmp_cfg);
+    prev_stance_mask = stance_mask_frame;
+
+    zmp_eval = hexapod_compute_quasistatic_zmp(foot_frame, force_frame, stance_mask_frame, zmp_cfg);
+    margin_eval = hexapod_compute_stability_margin(zmp_eval.support_xy, zmp_eval.zmp_xy);
+
+    zmp_x(idx) = zmp_eval.zmp_xy(1);
+    zmp_y(idx) = zmp_eval.zmp_xy(2);
+    stance_count(idx) = stance_count_frame;
+    zmp_inside_polygon_flag(idx) = margin_eval.zmp_inside_polygon_flag;
+    polygon_valid(idx) = margin_eval.polygon_valid;
+    stability_margin(idx) = margin_eval.stability_margin;
+    front_margin(idx) = margin_eval.front_margin;
+    lateral_offset(idx) = margin_eval.lateral_offset;
+end
 end
 
 function meta = fill_meta_defaults(meta, scene_info, telemetry)
@@ -302,6 +372,42 @@ if isempty(values)
     value = NaN;
 else
     value = max(values);
+end
+end
+
+function value = min_without_nan(values)
+values = values(~isnan(values));
+if isempty(values)
+    value = NaN;
+else
+    value = min(values);
+end
+end
+
+function value = mean_without_nan(values)
+values = values(~isnan(values));
+if isempty(values)
+    value = NaN;
+else
+    value = mean(values);
+end
+end
+
+function value = mean_logical_without_nan(mask, reference_values)
+valid_mask = ~isnan(reference_values);
+if ~any(valid_mask)
+    value = NaN;
+else
+    value = mean(double(mask(valid_mask)));
+end
+end
+
+function value = sum_logical_without_nan(mask, reference_values)
+valid_mask = ~isnan(reference_values);
+if ~any(valid_mask)
+    value = NaN;
+else
+    value = sum(double(mask(valid_mask)));
 end
 end
 

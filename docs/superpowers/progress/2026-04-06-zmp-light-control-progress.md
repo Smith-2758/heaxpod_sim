@@ -1,7 +1,7 @@
 # ZMP Light Control Progress
 
 ## 当前状态
-- 当前阶段：接手后完成 spec / plan / 现状核对，已完成 Task 1 code review 收尾、Task 2、Task 3 与 Task 4；准备进入 Task 5-7。
+- 当前阶段：接手后完成 spec / plan / 现状核对，已完成 Task 1 code review 收尾、Task 2、Task 3、Task 4、Task 5、Task 6 与 Task 7；准备进入 Task 8-10。
 - 当前工作区：`D:\codehub\hexapod\hexapod_sim_core\.worktrees\zmp-light-control`
 - 当前分支：`codex/zmp-light-control`
 - 当前主线目标：按既定技术路线继续实现“统一近似 ZMP 评估层 + 深沟在线辅助闭环 + 斜坡/高台离线迭代优化”，不改大方向。
@@ -45,6 +45,32 @@
   - 新增 `lib/zmp/hexapod_compute_stability_margin.m`。
   - 当前函数接口：`out = hexapod_compute_stability_margin(support_xy, zmp_xy)`。
   - 在验证过程中发现 `lateral_offset` 测试期望值写错；实现定义为 `zmp_y - mean(support_y)`，因此将测试修正为与设计一致的表达，而不是改动函数逻辑。
+- 2026-04-06：完成 Task 5：
+  - 新增 `tests/test_zmp_scene_rules.m`，覆盖：
+    - ditch 场景下临界稳定裕度触发 freeze
+    - 非 ditch 场景 no-op / log-only 行为
+    - ditch 场景 yaw assist / x guard 限幅
+    - polygon 无效时 freeze
+  - 新增 `lib/zmp/hexapod_apply_scene_zmp_rules.m`。
+  - 当前函数接口：`rules = hexapod_apply_scene_zmp_rules(state, cfg)`。
+  - 在验证过程中发现：如果测试直接硬编码 `stability_margin=0.03`，会与当前默认值 `SM_critical=0.05` 冲突，导致“本应不冻结”的测试实际被冻结；因此测试改为相对 `cfg.SM_critical` 构造安全输入，而不是修改规则函数去迎合硬编码测试值。
+- 2026-04-06：完成 Task 6：
+  - 新增 `tests/test_zmp_metrics_export.m` 的 metrics 侧测试，覆盖：
+    - 有 `footPosXYZ + legForceXYZ` 时生成 `zmp_x / zmp_y / stance_count / stability_margin` 等序列
+    - 旧日志缺少 ZMP telemetry 字段时仍兼容，并返回 `NaN` 型 ZMP 指标
+  - 扩展 `lib/metrics/hexapod_compute_metrics.m`：
+    - 新增 `footPosXYZ` / `legForceXYZ` 解析
+    - 新增每帧 `hexapod_detect_stance_legs` → `hexapod_compute_quasistatic_zmp` → `hexapod_compute_stability_margin` 计算链
+    - 新增 common 聚合：`zmp_margin_min_m`、`zmp_margin_mean_m`、`zmp_critical_frame_ratio`、`zmp_outside_count`、`stance_count_mean`
+    - 新增 series：`zmp_x`、`zmp_y`、`stance_count`、`zmp_inside_polygon_flag`、`polygon_valid`、`stability_margin`、`front_margin`、`lateral_offset`
+  - 在验证过程中发现：测试输入如果直接硬编码低于当前 `F_enter` 的受力，会得到合法的 `stance_count=0`；因此测试改为相对 `cfg.F_enter` 构造支撑受力，而不是修改实现去迎合脱离当前默认参数的测试样本。
+- 2026-04-06：完成 Task 7：
+  - 在 `tests/test_zmp_metrics_export.m` 中补充导出验证，要求 `hexapod_export_metrics(...)` 生成 `06_zmp_stability.png/.fig`。
+  - 扩展 `lib/metrics/hexapod_export_metrics.m`，新增第 6 张图：
+    - `stability_margin`
+    - `zmp_x / zmp_y`
+    - `stance_count + zmp_inside_polygon_flag`
+  - 保持原有图序和 summary 输出模式不变，只增补新图条目。
 
 ## 当前验证结果
 - 接手说明中给出的历史状态：
@@ -80,6 +106,31 @@
     - 修正测试期望后：`6 Passed, 0 Failed, 0 Incomplete`。
   - MATLAB Code Analyzer：`lib/zmp/hexapod_compute_stability_margin.m`
     - 结果：无静态问题。
+  - `tests/test_zmp_scene_rules.m`
+    - red 阶段：`4 Failed`，原因均为 `hexapod_apply_scene_zmp_rules` 未定义，符合 TDD 预期。
+    - 初次 green 验证：`3 Passed, 1 Failed`，失败原因为测试输入与当前默认阈值冲突，不是函数逻辑错误。
+    - 修正测试输入后：`4 Passed, 0 Failed, 0 Incomplete`。
+  - MATLAB Code Analyzer：`tests/test_zmp_scene_rules.m`
+    - 结果：无静态问题。
+  - MATLAB Code Analyzer：`lib/zmp/hexapod_apply_scene_zmp_rules.m`
+    - 结果：无静态问题。
+  - `tests/test_zmp_metrics_export.m`
+    - Task 6 red 阶段：`2 Failed`，根因为 `metrics.series.zmp_x` 等字段尚不存在，符合 TDD 预期。
+    - Task 6 green 阶段：修正测试输入使其相对 `cfg.F_enter` 构造支撑受力后，`2 Passed, 0 Failed, 0 Incomplete`。
+    - Task 7 red 阶段：新增导出测试后，`2 Passed, 1 Failed`，根因为 `06_zmp_stability.png/.fig` 尚未生成，符合 TDD 预期。
+    - Task 7 green 阶段：扩展 `hexapod_export_metrics.m` 后，`3 Passed, 0 Failed, 0 Incomplete`。
+  - ZMP targeted regression suite：
+    - `test_zmp_defaults_and_stance.m`
+    - `test_zmp_quasistatic_core.m`
+    - `test_zmp_scene_rules.m`
+    - `test_zmp_metrics_export.m`
+    - 合计：`16 Passed, 0 Failed, 0 Incomplete`
+  - MATLAB Code Analyzer：`lib/metrics/hexapod_compute_metrics.m`
+    - 结果：仅有既有的 `now` / `datestr` 信息级建议，无新增 error。
+  - MATLAB Code Analyzer：`lib/metrics/hexapod_export_metrics.m`
+    - 结果：仅有既有的 `now` / `datestr` 信息级建议，外加一个旧的未使用函数 warning；无新增 error。
+  - MATLAB Code Analyzer：`tests/test_zmp_metrics_export.m`
+    - 结果：仅有 `now` 的信息级建议；无新增 error。
 
 ## 当前技术判断
 - 当前技术路线与设计文档一致，没有偏离：
@@ -89,17 +140,17 @@
 - 当前默认参数实现明显偏离设计文档建议区间：
   - 现实现值：`F_enter=45`, `F_exit=30`, `SM_safe=0.15`, `SM_critical=0.05`, `K_yaw_zmp=0.40`, `K_x_guard=0.20`, `yaw_assist_limit_deg=12`, `x_guard_limit_m=0.03`。
   - 设计建议区间显著更保守。
-- 当前处理策略：进入 Task 5-7，把场景规则、metrics 聚合与 `06_zmp_stability` 导出串起来；默认值是否回调到设计建议区间，放到接入真实 telemetry 与规则后再决策。
-- 当前进展更新：Task 1 review 收尾、Task 2、Task 3 与 Task 4 已完成，`lib/zmp` 的基础评估三件套已落地：支撑腿识别 / 准静态 ZMP 点 / 稳定裕度几何。
+- 当前处理策略：进入 Task 8-10，把 common replay pipeline 与 ditch controller telemetry/rules 真正接起来；默认值是否回调到设计建议区间，优先在接入真实 telemetry 后再决策。
+- 当前进展更新：Task 1-7 已完成，统一近似 ZMP 评估层 + 场景规则 + metrics/export 闭环已经在离线测试层打通。
 
 ## 风险与待办
 - 当前最大风险：
   - 默认参数目前偏激，若不尽快校验合理性，后续 Task 5-10 接入时可能造成规则过重。
-  - 尽管基础评估层已就位，但尚未接入 `hexapod_compute_metrics.m` / `hexapod_export_metrics.m`，因此还没有真实日志到图表的闭环证据。
+  - 尽管离线 telemetry → metrics → export 已打通，但还没接进 `MAIN/CoppeliaSim_process.m` 与 `MAIN/6leg_motion/ditch/CoppeliaSim_learn_ditch.m` 的真实运行链路。
 - 下一步最该做的事：
-  1. 开始 Task 5：实现 `lib/zmp/hexapod_apply_scene_zmp_rules.m`，先覆盖 ditch 与非 ditch 行为测试。
-  2. 开始 Task 6：把 ZMP 序列与聚合指标接入 `lib/metrics/hexapod_compute_metrics.m`。
-  3. 开始 Task 7：把 `06_zmp_stability` 图接入 `lib/metrics/hexapod_export_metrics.m`。
+  1. 开始 Task 8：在 `MAIN/CoppeliaSim_process.m` 中记录 `footPosXYZ / legForceXYZ` 等 ZMP 所需 telemetry。
+  2. 开始 Task 9：在 `MAIN/6leg_motion/ditch/CoppeliaSim_learn_ditch.m` 接 freeze-only 辅助。
+  3. 开始 Task 10：继续把 ditch 的 yaw assist / x guard 接入在线控制量更新点。
 - 当前不要碰：
   - 深沟主状态机重写。
   - 全场景重型在线控制。
