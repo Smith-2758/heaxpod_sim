@@ -84,6 +84,19 @@ verifyTrue(testCase, isfield(metrics.scene, 'zmp_x_guard_peak_m'));
 verifyEqual(testCase, metrics.scene.zmp_x_guard_peak_m, 0.02, 'AbsTol', 1e-12);
 end
 
+function test_compute_metrics_preserves_zmp_mode_metadata(testCase)
+project_root = fileparts(fileparts(mfilename('fullpath')));
+initialize_project_paths(project_root);
+
+telemetry = build_fake_zmp_telemetry();
+meta = struct('scene_name', 'ditch', 'zmp_mode', 'off');
+
+metrics = hexapod_compute_metrics(telemetry, meta);
+
+verifyTrue(testCase, isfield(metrics.meta, 'zmp_mode'));
+verifyEqual(testCase, string(metrics.meta.zmp_mode), "off");
+end
+
 function initialize_project_paths(project_root)
 setup_dir = fullfile(project_root, 'lib', 'setup');
 if exist(setup_dir, 'dir') == 7

@@ -90,6 +90,24 @@ verifyTrue(testCase, endsWith(normalize_path(final_replay.mat_path), ...
     sprintf('ditch_final_replay 应指向最终版 walk_ditch_learned.mat，当前为: %s', final_replay.mat_path));
 end
 
+function test_ditch_closed_loop_cases_expose_zmp_mode(testCase)
+initialize_project_paths();
+cases = hexapod_compare_registry('cases');
+
+closed_loop_off = cases(strcmp({cases.case_id}, 'ditch_final_closed_loop_off'));
+closed_loop_on = cases(strcmp({cases.case_id}, 'ditch_final_closed_loop_on'));
+
+verifyEqual(testCase, numel(closed_loop_off), 1, 'ditch_final_closed_loop_off 映射缺失。');
+verifyEqual(testCase, numel(closed_loop_on), 1, 'ditch_final_closed_loop_on 映射缺失。');
+
+verifyEqual(testCase, string(closed_loop_off.source_type), "ditch_final_closed_loop");
+verifyEqual(testCase, string(closed_loop_on.source_type), "ditch_final_closed_loop");
+verifyTrue(testCase, isfield(closed_loop_off, 'zmp_mode'));
+verifyTrue(testCase, isfield(closed_loop_on, 'zmp_mode'));
+verifyEqual(testCase, string(closed_loop_off.zmp_mode), "off");
+verifyEqual(testCase, string(closed_loop_on.zmp_mode), "on");
+end
+
 function initialize_project_paths()
 test_file = which('test_compare_refactor_structure');
 if isempty(test_file)
