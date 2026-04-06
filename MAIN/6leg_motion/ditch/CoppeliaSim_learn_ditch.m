@@ -173,6 +173,8 @@ real_body = [xb(1); yb(1); NOMINAL_BODY_Z];
 air_count = zeros(1, 6);               % 支撑相连续失载计数器
 zmp_cfg = hexapod_zmp_defaults();
 prev_stance_mask = false(1, 6);
+zmp_mode = string(get_struct_field(export_meta, 'zmp_mode', 'on'));
+zmp_control_enabled = strcmpi(zmp_mode, "on");
 
 %% 3. 主仿真循环
 while kk <= Data_Num
@@ -201,15 +203,17 @@ while kk <= Data_Num
         'lateral_offset', margin_eval.lateral_offset, ...
         'polygon_valid', margin_eval.polygon_valid);
     rules = hexapod_apply_scene_zmp_rules(zmp_state, zmp_cfg);
-    if rules.freeze_progression
-        target_x_offset = min(target_x_offset, current_x_offset);
-        zmp_freeze_flag(sim_frame) = 1;
+    if zmp_control_enabled
+        if rules.freeze_progression
+            target_x_offset = min(target_x_offset, current_x_offset);
+            zmp_freeze_flag(sim_frame) = 1;
+        end
+        target_yaw_cmd = target_yaw_cmd + deg2rad(rules.delta_yaw_zmp_deg);
+        target_yaw_cmd = max(-deg2rad(5), min(deg2rad(5), target_yaw_cmd));
+        target_x_offset = target_x_offset - rules.delta_x_guard_m;
+        zmp_yaw_assist_deg(sim_frame) = rules.delta_yaw_zmp_deg;
+        zmp_x_guard_m(sim_frame) = rules.delta_x_guard_m;
     end
-    target_yaw_cmd = target_yaw_cmd + deg2rad(rules.delta_yaw_zmp_deg);
-    target_yaw_cmd = max(-deg2rad(5), min(deg2rad(5), target_yaw_cmd));
-    target_x_offset = target_x_offset - rules.delta_x_guard_m;
-    zmp_yaw_assist_deg(sim_frame) = rules.delta_yaw_zmp_deg;
-    zmp_x_guard_m(sim_frame) = rules.delta_x_guard_m;
     
     % [模块 B]: 偏航闭环控制 (机身扭转与步幅动态调节)
     if mod(sim_frame, 500) == 0 && sim_frame > WARMUP_FRAMES
@@ -874,6 +878,7 @@ telemetry.control_dt_sec = Control_T / 1000;
 telemetry.extra = struct();
 telemetry.extra.recover_count_total = recover_count_total;
 telemetry.extra.learned_path = learned_path;
+telemetry.extra.zmp_mode = char(zmp_mode);
 telemetry.extra.zmp_freeze_flag = zmp_freeze_flag(1:logged_frame_count);
 telemetry.extra.zmp_yaw_assist_deg = zmp_yaw_assist_deg(1:logged_frame_count);
 telemetry.extra.zmp_x_guard_m = zmp_x_guard_m(1:logged_frame_count);

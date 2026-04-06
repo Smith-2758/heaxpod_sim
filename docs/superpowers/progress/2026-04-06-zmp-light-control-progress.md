@@ -1,7 +1,7 @@
 # ZMP Light Control Progress
 
 ## 当前状态
-- 当前阶段：接手后完成 spec / plan / 现状核对，已完成 Task 1-10；下一步应进入 Task 11 的实验诊断与文档收束。
+- 当前阶段：接手后完成 spec / plan / 现状核对，已完成 Task 1-10，并补上深沟 `zmp_mode=off/on` 的最小可对照实现；当前可进入下一轮正式实验设计或继续做参数实验。
 - 当前工作区：`D:\codehub\hexapod\hexapod_sim_core\.worktrees\zmp-light-control`
 - 当前分支：`codex/zmp-light-control`
 - 当前主线目标：按既定技术路线继续实现“统一近似 ZMP 评估层 + 深沟在线辅助闭环 + 斜坡/高台离线迭代优化”，不改大方向。
@@ -217,6 +217,26 @@
         - `zmp_critical_frame_ratio`: 两者均为 `0.000000`
       - 当前判断：高台当前方案也优于初始版，暂时没有足够证据支持立刻修改 `walk3step_high.m` 的 `dais_*` / `zbb_max` 组。
     - 当前结论：Task 11 的首轮 live baseline 已完成，而且当前最合理的动作是“记录诊断结果并收束文档”，而不是为了凑调参而盲改 slope/high-platform 轨迹文件。
+  - deep ditch `zmp_mode=off/on` 最小开关落地验证：
+    - `tests/test_compare_refactor_structure.m`
+      - 新增 `test_ditch_closed_loop_cases_expose_zmp_mode`
+      - 验证 compare registry 中存在：
+        - `ditch_final_closed_loop_off`
+        - `ditch_final_closed_loop_on`
+      - 两个 case 都走 `ditch_final_closed_loop` 源类型，并显式暴露 `zmp_mode`
+    - `tests/test_zmp_metrics_export.m`
+      - 验证 `metrics.meta.zmp_mode` 在 ditch 侧可保留
+    - full ZMP regression：
+      - `test_zmp_defaults_and_stance.m`
+      - `test_zmp_quasistatic_core.m`
+      - `test_zmp_scene_rules.m`
+      - `test_zmp_metrics_export.m`
+      - `test_compare_refactor_structure.m`
+      - 合计：`23 Passed, 0 Failed, 0 Incomplete`
+    - MATLAB Code Analyzer：
+      - `MAIN/compare/hexapod_compare_registry.m`：无静态问题
+      - `MAIN/compare/hexapod_compare_trajectory.m`：仅既有 info/warning，无新增 error
+      - `MAIN/6leg_motion/ditch/CoppeliaSim_learn_ditch.m`：仅历史大文件既有 info/warning，无新增 error
 
 ## 当前技术判断
 - 当前技术路线与设计文档一致，没有偏离：
@@ -228,7 +248,12 @@
   - 设计建议区间显著更保守。
 - 当前处理策略：Task 1-10 已经完成，下一阶段重点转向 Task 11：运行 slope / step 的真实诊断基线，利用 `06_zmp_stability` 图判断是否需要调参或回调默认值。
 - 当前进展更新：Task 1-10 已完成，统一近似 ZMP 评估层 + scene rules + metrics/export + replay/ditch telemetry + bounded ditch assist 已全部接通。
+- 当前进展更新（后续决策落地）：deep ditch 已从“只有一版带 ZMP 的原型脚本”收敛为最小两态可对照结构：
+  - `zmp_mode = off`
+  - `zmp_mode = on`
+  且该模式通过 compare case → export_meta → ditch controller 的链路显式传递。
 - Task 11 当前判断更新：基于已跑通的 slope / step baseline，当前方案在两个场景下都优于对应旧版/初始版，暂不建议立刻改 `walk_slope.m` 或 `walk3step_high.m`；更合适的是先把“已具备诊断能力且当前参数表现可接受”写清楚。
+- 用户决策补充：按当前要求，ditch smoke test 本轮不再继续补跑，Task 11 以 slope / step baseline 与文档收束为终点。
 - Task 11 诊断准备补充：
   - `walk_slope.m` 的首批可控参数组已定位为：
     - `slope_rise_x`
@@ -251,9 +276,9 @@
   - 默认参数目前偏激，若不尽快校验合理性，后续 Task 5-10 接入时可能造成规则过重。
   - 虽然 Task 11 的 slope / step baseline 已经跑通，且修掉了一个 live baseline 暴露的几何鲁棒性问题，但默认参数仍明显高于设计建议区间，后续若要写论文或继续实验，仍需解释为何暂不回调到更保守范围。
 - 下一步最该做的事：
-  1. 按用户决定跳过 ditch smoke test，不再继续补这一路径验证。
-  2. 视需要在 spec 中补一句：Task 11 首轮诊断后暂不进行 slope/high-platform 参数修改，因为当前方案已优于对应 baseline。
-  3. 若要继续实验，下一步应围绕论文表达与参数解释做文档收束，而不是继续盲目改轨迹参数。
+  1. 以 `ditch_final_closed_loop_off` / `ditch_final_closed_loop_on` 组织正式对照实验，而不是再直接比较“改脚本前后”的混合版本。
+  2. slope / step 继续保持“开环 + ZMP 引导离线优化”路线，后续若要宣称优化，必须形成一轮真实参数修正闭环。
+  3. 若继续论文实验，优先补写实验矩阵与参数说明，而不是继续扩大控制逻辑改动面。
 - 当前不要碰：
   - 深沟主状态机重写。
   - 全场景重型在线控制。
