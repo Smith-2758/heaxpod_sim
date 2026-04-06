@@ -135,6 +135,9 @@ switch scene_info.scene_name
         scene.ditch_stage_pitch_peak_deg = max_abs_without_nan(pitch_deg(stage_mask));
         scene.ditch_stage_roll_peak_deg = max_abs_without_nan(roll_deg(stage_mask));
         scene.recover_count_total = get_struct_field(extra, 'recover_count_total', NaN);
+        scene.zmp_freeze_count = sum(get_struct_field(extra, 'zmp_freeze_flag', zeros(sample_count, 1)) > 0);
+        scene.zmp_yaw_assist_peak_deg = max_abs_without_nan(get_struct_field(extra, 'zmp_yaw_assist_deg', NaN(sample_count, 1)));
+        scene.zmp_x_guard_peak_m = max_abs_without_nan(get_struct_field(extra, 'zmp_x_guard_m', NaN(sample_count, 1)));
         common.success_flag = double(~isempty(valid_pos) && valid_pos(end, 1) >= scene_info.ditch_crossing_x(2));
 
     otherwise

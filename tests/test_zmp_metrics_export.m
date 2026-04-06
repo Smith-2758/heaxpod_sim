@@ -65,6 +65,25 @@ verifyTrue(testCase, exist(fullfile(run_output_dir, '06_zmp_stability.fig'), 'fi
 verifyEqual(testCase, numel(metrics.series.stability_margin), numel(telemetry.realX));
 end
 
+function test_compute_metrics_aggregates_ditch_zmp_control_flags(testCase)
+project_root = fileparts(fileparts(mfilename('fullpath')));
+initialize_project_paths(project_root);
+
+telemetry = build_fake_zmp_telemetry();
+telemetry.extra.zmp_freeze_flag = [0; 1; 1];
+telemetry.extra.zmp_yaw_assist_deg = [0; 1.5; -2.0];
+telemetry.extra.zmp_x_guard_m = [0; 0.01; 0.02];
+
+metrics = hexapod_compute_metrics(telemetry, struct('scene_name', 'ditch'));
+
+verifyTrue(testCase, isfield(metrics.scene, 'zmp_freeze_count'));
+verifyEqual(testCase, metrics.scene.zmp_freeze_count, 2);
+verifyTrue(testCase, isfield(metrics.scene, 'zmp_yaw_assist_peak_deg'));
+verifyEqual(testCase, metrics.scene.zmp_yaw_assist_peak_deg, 2.0, 'AbsTol', 1e-12);
+verifyTrue(testCase, isfield(metrics.scene, 'zmp_x_guard_peak_m'));
+verifyEqual(testCase, metrics.scene.zmp_x_guard_peak_m, 0.02, 'AbsTol', 1e-12);
+end
+
 function initialize_project_paths(project_root)
 setup_dir = fullfile(project_root, 'lib', 'setup');
 if exist(setup_dir, 'dir') == 7

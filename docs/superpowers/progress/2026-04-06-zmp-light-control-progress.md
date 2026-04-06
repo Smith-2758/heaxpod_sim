@@ -1,7 +1,7 @@
 # ZMP Light Control Progress
 
 ## 当前状态
-- 当前阶段：接手后完成 spec / plan / 现状核对，已完成 Task 1 code review 收尾、Task 2、Task 3、Task 4、Task 5、Task 6 与 Task 7；准备进入 Task 8-10。
+- 当前阶段：接手后完成 spec / plan / 现状核对，已完成 Task 1-10；下一步应进入 Task 11 的实验诊断与文档收束。
 - 当前工作区：`D:\codehub\hexapod\hexapod_sim_core\.worktrees\zmp-light-control`
 - 当前分支：`codex/zmp-light-control`
 - 当前主线目标：按既定技术路线继续实现“统一近似 ZMP 评估层 + 深沟在线辅助闭环 + 斜坡/高台离线迭代优化”，不改大方向。
@@ -71,6 +71,40 @@
     - `zmp_x / zmp_y`
     - `stance_count + zmp_inside_polygon_flag`
   - 保持原有图序和 summary 输出模式不变，只增补新图条目。
+- 2026-04-06：完成 Task 8：
+  - 扩展 `MAIN/CoppeliaSim_process.m`，新增 replay pipeline 所需的 ZMP telemetry 记录：
+    - `foot_pos_xyz_log = NaN(expected_frames, 18)`
+    - `leg_force_xyz_log = NaN(expected_frames, 18)`
+  - 每帧在 `vrobot.get_force_sensor()` 之后，补采 6 条腿对应 force sensor 的足端世界坐标，并把当前 `F(leg_idx, :)` 写入 18 维 XYZ telemetry。
+  - 在末尾 telemetry 导出中新增：
+    - `telemetry.footPosXYZ`
+    - `telemetry.legForceXYZ`
+  - 严格保持 log-only：没有在 `CoppeliaSim_process.m` 中接入任何在线控制或规则应用。
+- 2026-04-06：完成 Task 9：
+  - 扩展 `MAIN/6leg_motion/ditch/CoppeliaSim_learn_ditch.m`，新增 ditch controller 侧的 ZMP telemetry logging：
+    - `foot_pos_xyz_log`
+    - `leg_force_xyz_log`
+  - 每帧在 `get_force_sensor()` 后使用现有纯函数链：
+    - `hexapod_detect_stance_legs`
+    - `hexapod_compute_quasistatic_zmp`
+    - `hexapod_compute_stability_margin`
+    - `hexapod_apply_scene_zmp_rules`
+  - 仅接入 freeze-only 行为：当 `rules.freeze_progression` 为真时，执行
+    - `target_x_offset = min(target_x_offset, current_x_offset)`
+  - 新增日志字段：`telemetry.extra.zmp_freeze_flag`
+  - 仍未接入 yaw assist / x guard，保持与 Task 9 边界一致。
+- 2026-04-06：完成 Task 10：
+  - 在 `MAIN/6leg_motion/ditch/CoppeliaSim_learn_ditch.m` 接入 bounded assistance：
+    - `target_yaw_cmd = target_yaw_cmd + deg2rad(rules.delta_yaw_zmp_deg)`
+    - `target_yaw_cmd` 限幅在 ±5°
+    - `target_x_offset = target_x_offset - rules.delta_x_guard_m`
+  - 新增 ditch telemetry 辅助量日志：
+    - `telemetry.extra.zmp_yaw_assist_deg`
+    - `telemetry.extra.zmp_x_guard_m`
+  - 扩展 `lib/metrics/hexapod_compute_metrics.m` 的 ditch 聚合：
+    - `scene.zmp_freeze_count`
+    - `scene.zmp_yaw_assist_peak_deg`
+    - `scene.zmp_x_guard_peak_m`
 
 ## 当前验证结果
 - 接手说明中给出的历史状态：
@@ -131,6 +165,29 @@
     - 结果：仅有既有的 `now` / `datestr` 信息级建议，外加一个旧的未使用函数 warning；无新增 error。
   - MATLAB Code Analyzer：`tests/test_zmp_metrics_export.m`
     - 结果：仅有 `now` 的信息级建议；无新增 error。
+  - Task 8 回归验证：
+    - 重新运行 ZMP 纯 MATLAB targeted regression suite：
+      - `test_zmp_defaults_and_stance.m`
+      - `test_zmp_quasistatic_core.m`
+      - `test_zmp_scene_rules.m`
+      - `test_zmp_metrics_export.m`
+    - 结果：`16 Passed, 0 Failed, 0 Incomplete`
+    - 结论：Task 8 的 replay telemetry logging 为纯日志扩展，没有破坏 Task 1-7 的离线链路。
+  - MATLAB Code Analyzer：`MAIN/CoppeliaSim_process.m`
+    - 结果：无新增 error；仍存在该大文件原有的全局变量、`now` / `datestr` 与若干旧预分配提示，暂不在本任务中顺手重构。
+  - `tests/test_zmp_metrics_export.m`（Task 10 扩展后）
+    - red 阶段：`3 Passed, 1 Failed`，根因为 ditch 聚合字段 `zmp_freeze_count / zmp_yaw_assist_peak_deg / zmp_x_guard_peak_m` 尚不存在，符合 TDD 预期。
+    - green 阶段：扩展 `hexapod_compute_metrics.m` 后，`4 Passed, 0 Failed, 0 Incomplete`。
+  - Task 9-10 回归验证：
+    - 重新运行 ZMP 纯 MATLAB targeted regression suite：
+      - `test_zmp_defaults_and_stance.m`
+      - `test_zmp_quasistatic_core.m`
+      - `test_zmp_scene_rules.m`
+      - `test_zmp_metrics_export.m`
+    - 结果：`17 Passed, 0 Failed, 0 Incomplete`
+    - 结论：ditch controller 接入 freeze-only 与 bounded assist 后，离线 ZMP 链路仍稳定。
+  - MATLAB Code Analyzer：`MAIN/6leg_motion/ditch/CoppeliaSim_learn_ditch.m`
+    - 结果：无新增 error；仍有该历史大文件既有的 `now` / `datestr` 信息级建议和旧 warning，当前未做结构性重构。
 
 ## 当前技术判断
 - 当前技术路线与设计文档一致，没有偏离：
@@ -140,17 +197,17 @@
 - 当前默认参数实现明显偏离设计文档建议区间：
   - 现实现值：`F_enter=45`, `F_exit=30`, `SM_safe=0.15`, `SM_critical=0.05`, `K_yaw_zmp=0.40`, `K_x_guard=0.20`, `yaw_assist_limit_deg=12`, `x_guard_limit_m=0.03`。
   - 设计建议区间显著更保守。
-- 当前处理策略：进入 Task 8-10，把 common replay pipeline 与 ditch controller telemetry/rules 真正接起来；默认值是否回调到设计建议区间，优先在接入真实 telemetry 后再决策。
-- 当前进展更新：Task 1-7 已完成，统一近似 ZMP 评估层 + 场景规则 + metrics/export 闭环已经在离线测试层打通。
+- 当前处理策略：Task 1-10 已经完成，下一阶段重点转向 Task 11：运行 slope / step 的真实诊断基线，利用 `06_zmp_stability` 图判断是否需要调参或回调默认值。
+- 当前进展更新：Task 1-10 已完成，统一近似 ZMP 评估层 + scene rules + metrics/export + replay/ditch telemetry + bounded ditch assist 已全部接通。
 
 ## 风险与待办
 - 当前最大风险：
   - 默认参数目前偏激，若不尽快校验合理性，后续 Task 5-10 接入时可能造成规则过重。
-  - 尽管离线 telemetry → metrics → export 已打通，但还没接进 `MAIN/CoppeliaSim_process.m` 与 `MAIN/6leg_motion/ditch/CoppeliaSim_learn_ditch.m` 的真实运行链路。
+  - 虽然 Task 1-10 已代码落地，但 Task 9-10 还没有完成计划中的 ditch smoke test，因此真实场景下是否会出现状态机卡死或 yaw blow-up 仍需实验确认。
 - 下一步最该做的事：
-  1. 开始 Task 8：在 `MAIN/CoppeliaSim_process.m` 中记录 `footPosXYZ / legForceXYZ` 等 ZMP 所需 telemetry。
-  2. 开始 Task 9：在 `MAIN/6leg_motion/ditch/CoppeliaSim_learn_ditch.m` 接 freeze-only 辅助。
-  3. 开始 Task 10：继续把 ditch 的 yaw assist / x guard 接入在线控制量更新点。
+  1. 进入 Task 11：执行 slope / step 诊断基线，观察 `06_zmp_stability` 导出结果。
+  2. 如果环境允许，再补 Task 9-10 计划中的 ditch smoke test，确认没有 state-machine deadlock 或 yaw blow-up。
+  3. 基于真实导出图决定是否调回默认参数到设计建议区间，或只在文档中解释保留当前值的原因。
 - 当前不要碰：
   - 深沟主状态机重写。
   - 全场景重型在线控制。
