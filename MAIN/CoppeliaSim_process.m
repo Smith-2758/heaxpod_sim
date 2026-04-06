@@ -164,6 +164,8 @@ realZ_log = NaN(expected_frames, 1);
 bodyRoll_log = NaN(expected_frames, 1);
 bodyPitch_log = NaN(expected_frames, 1);
 bodyYaw_log = NaN(expected_frames, 1);
+foot_pos_xyz_log = NaN(expected_frames, 18);
+leg_force_xyz_log = NaN(expected_frames, 18);
 
 % 【外层循环】遍历所有动作模式
 % 例如：如果pattern={'walk','climb2wall'}，则num=2，会依次执行两个动作
@@ -223,6 +225,22 @@ for jj=1:num
         %         if jj==num
         %
         [F,tao]=vrobot.get_force_sensor;
+        frame_idx = nnn;
+        for leg_idx = 1:6
+            [~, foot_pos] = vrobot.Main.simxGetObjectPosition( ...
+                vrobot.ClientID, vrobot.Force_sensor_Handle(leg_idx), -1, ...
+                vrobot.Main.simx_opmode_oneshot);
+            if exist('foot_pos', 'var') && numel(foot_pos) == 3
+                foot_pos_xyz_log(frame_idx, (leg_idx - 1) * 3 + (1:3)) = foot_pos(:).';
+            else
+                foot_pos_xyz_log(frame_idx, (leg_idx - 1) * 3 + (1:3)) = NaN(1, 3);
+            end
+            if size(F, 1) >= leg_idx && size(F, 2) >= 3
+                leg_force_xyz_log(frame_idx, (leg_idx - 1) * 3 + (1:3)) = F(leg_idx, 1:3);
+            else
+                leg_force_xyz_log(frame_idx, (leg_idx - 1) * 3 + (1:3)) = NaN(1, 3);
+            end
+        end
         %                     if kk>1200
         %
         %                 FR(kk-1200,:)=F(1,:)*filter_coef+FR_last*(1-filter_coef);
@@ -263,7 +281,6 @@ for jj=1:num
         %         end
         
         % === [新增追踪日志] 记录每一步机器人真实坐标 ===
-        frame_idx = nnn;
         [~, body_p] = vrobot.Main.simxGetObjectPosition(vrobot.ClientID, vrobot.Body_Handle, -1, vrobot.Main.simx_opmode_oneshot);
         if exist('body_p', 'var') && length(body_p) == 3
             realX_log(frame_idx) = body_p(1);
@@ -334,6 +351,8 @@ telemetry.realY = realY_log(1:logged_frame_count);
 telemetry.realZ = realZ_log(1:logged_frame_count);
 telemetry.bodyEulerDeg = [bodyRoll_log(1:logged_frame_count), bodyPitch_log(1:logged_frame_count), bodyYaw_log(1:logged_frame_count)];
 telemetry.legForceMag = leg_force_mag;
+telemetry.footPosXYZ = foot_pos_xyz_log(1:logged_frame_count, :);
+telemetry.legForceXYZ = leg_force_xyz_log(1:logged_frame_count, :);
 telemetry.control_dt_sec = control_step_sec;
 telemetry.extra = struct();
 
