@@ -115,6 +115,22 @@ verifyTrue(testCase, isnan(out.front_margin));
 verifyTrue(testCase, isnan(out.lateral_offset));
 end
 
+function test_stability_margin_is_invalid_for_collinear_support_points(testCase)
+project_root = fileparts(fileparts(mfilename('fullpath')));
+initialize_project_paths(project_root);
+
+support_xy = [0 0; 1 0; 2 0];
+zmp_xy = [1 0];
+
+out = hexapod_compute_stability_margin(support_xy, zmp_xy);
+
+verifyFalse(testCase, out.polygon_valid);
+verifyFalse(testCase, out.zmp_inside_polygon_flag);
+verifyTrue(testCase, isnan(out.stability_margin));
+verifyTrue(testCase, isnan(out.front_margin));
+verifyTrue(testCase, isnan(out.lateral_offset));
+end
+
 function initialize_project_paths(project_root)
 setup_dir = fullfile(project_root, 'lib', 'setup');
 if exist(setup_dir, 'dir') == 7

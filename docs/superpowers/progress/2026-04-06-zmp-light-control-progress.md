@@ -188,6 +188,35 @@
     - 结论：ditch controller 接入 freeze-only 与 bounded assist 后，离线 ZMP 链路仍稳定。
   - MATLAB Code Analyzer：`MAIN/6leg_motion/ditch/CoppeliaSim_learn_ditch.m`
     - 结果：无新增 error；仍有该历史大文件既有的 `now` / `datestr` 信息级建议和旧 warning，当前未做结构性重构。
+  - Task 11 基线诊断启动状态：
+    - 首次直接调用 `hexapod_compare_batch({'slope_current', 'slope_baseline'}, struct('num_repeats', 1));` 失败，原因是当前 MATLAB 路径未挂载 `MAIN/compare` 入口。
+    - 经 `addpath(fullfile(pwd,'lib','setup')); hexapod_setup_paths();` 初始化后，compare 入口可见。
+    - 第二次尝试使用 `target_total_frames=6001` 直接跳过交互仍失败；从 `hexapod_compare_batch.m` 入口确认，该函数只有在 `default_total_frames` 为空时才调用 `prompt_total_frames(...)`，因此非交互运行时应传 `default_total_frames` 而不是期待 `target_total_frames` 本身绕过提示。
+    - 继续推进后，fresh MATLAB baseline 真正启动了 `slope_current`，但在导出指标阶段暴露出一个新的 live robustness 问题：某些帧的支撑点集几何退化（共线/退化凸包），导致 `hexapod_compute_stability_margin.m` 中的 `convhull(...)` 抛错。
+    - 已按 TDD 修复：
+      - 在 `tests/test_zmp_quasistatic_core.m` 新增 `test_stability_margin_is_invalid_for_collinear_support_points`
+      - 在 `lib/zmp/hexapod_compute_stability_margin.m` 中把退化凸包视为 invalid 返回，而不是崩溃
+    - 修复后验证：
+      - `test_zmp_quasistatic_core.m` → `7 Passed, 0 Failed, 0 Incomplete`
+      - 全部 ZMP targeted regression → `18 Passed, 0 Failed, 0 Incomplete`
+      - MATLAB Code Analyzer：`lib/zmp/hexapod_compute_stability_margin.m` → 无静态问题
+    - 随后在 fresh MATLAB 进程中重跑 `slope_current` / `slope_baseline`，compare 主链路已成功走完，两侧均导出 `06_zmp_stability.png` 与统一 `metrics_summary.md`。
+    - 再在 fresh MATLAB 进程中运行 `step_current` / `step_initial`，高台场景 compare 主链路同样成功走完，两侧均导出 `06_zmp_stability.png` 与统一 `metrics_summary.md`。
+    - slope 诊断结论（首轮 baseline）：
+      - `slope_current` 相比 `slope_baseline`：
+        - `zmp_margin_min_m`: `0.110231` vs `0.003676`（显著更高）
+        - `zmp_critical_frame_ratio`: `0.000000` vs `0.003501`
+        - `roll_peak_deg`: `1.538255` vs `4.888126`
+        - `yaw_peak_deg`: `2.188131` vs `5.285136`
+      - 当前判断：斜坡当前方案已明显优于旧版，不应在没有更细图像证据的情况下盲调 `walk_slope.m`。
+    - step 诊断结论（首轮 baseline）：
+      - `step_current` 相比 `step_initial`：
+        - `zmp_margin_min_m`: `0.316390` vs `0.144701`
+        - `pitch_peak_deg`: `0.950647` vs `3.860883`
+        - `roll_peak_deg`: `0.231934` vs `1.076151`
+        - `zmp_critical_frame_ratio`: 两者均为 `0.000000`
+      - 当前判断：高台当前方案也优于初始版，暂时没有足够证据支持立刻修改 `walk3step_high.m` 的 `dais_*` / `zbb_max` 组。
+    - 当前结论：Task 11 的首轮 live baseline 已完成，而且当前最合理的动作是“记录诊断结果并收束文档”，而不是为了凑调参而盲改 slope/high-platform 轨迹文件。
 
 ## 当前技术判断
 - 当前技术路线与设计文档一致，没有偏离：
@@ -199,15 +228,32 @@
   - 设计建议区间显著更保守。
 - 当前处理策略：Task 1-10 已经完成，下一阶段重点转向 Task 11：运行 slope / step 的真实诊断基线，利用 `06_zmp_stability` 图判断是否需要调参或回调默认值。
 - 当前进展更新：Task 1-10 已完成，统一近似 ZMP 评估层 + scene rules + metrics/export + replay/ditch telemetry + bounded ditch assist 已全部接通。
+- Task 11 当前判断更新：基于已跑通的 slope / step baseline，当前方案在两个场景下都优于对应旧版/初始版，暂不建议立刻改 `walk_slope.m` 或 `walk3step_high.m`；更合适的是先把“已具备诊断能力且当前参数表现可接受”写清楚。
+- Task 11 诊断准备补充：
+  - `walk_slope.m` 的首批可控参数组已定位为：
+    - `slope_rise_x`
+    - `slope_full_x`
+    - `slope_coeff_start`
+    - `slope_coeff_end`
+    - `pitch_bb` 过渡窗口（通过 `rise/full` 区间和平滑函数共同决定）
+  - `walk3step_high.m` 的首批可控参数组已定位为：
+    - `dais_rise_x`
+    - `dais_full_x`
+    - `zbb_max`
+    - 台阶前局部抬脚补偿（如 `dais-0.2` / `+0.1` 这一组）
+  - 当前判断：high-platform 轨迹文件没有独立的 `pitch_bb` 过渡层，第一轮应优先把它当作 body-Z + foot-lift 问题诊断，而不是错误地套用 slope 的 pitch 调参思路。
+  - 当前策略仍保持不变：在看到 `06_zmp_stability` 的首轮诊断图之前，不盲改 `walk_slope.m` 或 `walk3step_high.m`。
+  - Compare 运行约束补充：Task 11 的 live baseline 若要避免 `input(...)` 交互，需要通过 `default_total_frames` 提供默认帧数；仅传 `target_total_frames` 不会阻止它进入 `prompt_total_frames(...)`。
+  - Task 11 进一步判断：live slope baseline 已经证明，真实场景比离线假数据更容易出现退化支撑点集；因此在做 slope/high-platform 参数调优前，先补这类几何鲁棒性是必要且合理的，不算偏离设计目标。
 
 ## 风险与待办
 - 当前最大风险：
   - 默认参数目前偏激，若不尽快校验合理性，后续 Task 5-10 接入时可能造成规则过重。
-  - 虽然 Task 1-10 已代码落地，但 Task 9-10 还没有完成计划中的 ditch smoke test，因此真实场景下是否会出现状态机卡死或 yaw blow-up 仍需实验确认。
+  - 虽然 Task 11 的 slope / step baseline 已经跑通，且修掉了一个 live baseline 暴露的几何鲁棒性问题，但默认参数仍明显高于设计建议区间，后续若要写论文或继续实验，仍需解释为何暂不回调到更保守范围。
 - 下一步最该做的事：
-  1. 进入 Task 11：执行 slope / step 诊断基线，观察 `06_zmp_stability` 导出结果。
-  2. 如果环境允许，再补 Task 9-10 计划中的 ditch smoke test，确认没有 state-machine deadlock 或 yaw blow-up。
-  3. 基于真实导出图决定是否调回默认参数到设计建议区间，或只在文档中解释保留当前值的原因。
+  1. 按用户决定跳过 ditch smoke test，不再继续补这一路径验证。
+  2. 视需要在 spec 中补一句：Task 11 首轮诊断后暂不进行 slope/high-platform 参数修改，因为当前方案已优于对应 baseline。
+  3. 若要继续实验，下一步应围绕论文表达与参数解释做文档收束，而不是继续盲目改轨迹参数。
 - 当前不要碰：
   - 深沟主状态机重写。
   - 全场景重型在线控制。

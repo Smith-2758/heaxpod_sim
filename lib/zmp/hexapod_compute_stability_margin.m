@@ -16,7 +16,12 @@ if size(support_xy, 1) < 3
     return;
 end
 
-hull_idx = convhull(support_xy(:, 1), support_xy(:, 2));
+try
+    hull_idx = convhull(support_xy(:, 1), support_xy(:, 2));
+catch
+    return;
+end
+
 polygon_xy = support_xy(hull_idx(1:end-1), :);
 polygon_area = polyarea(polygon_xy(:, 1), polygon_xy(:, 2));
 
