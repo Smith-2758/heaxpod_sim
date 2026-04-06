@@ -30,6 +30,7 @@ required_paths = {
     fullfile(project_root, 'lib', 'common')
     fullfile(project_root, 'lib', 'metrics')
     fullfile(project_root, 'lib', 'remote_api')
+    fullfile(project_root, 'lib', 'zmp')
     fullfile(project_root, 'MAIN')
     fullfile(project_root, 'MAIN', 'compare')
     fullfile(project_root, 'MAIN', 'compare', 'metircs_analyze')
