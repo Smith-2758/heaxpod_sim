@@ -11,13 +11,13 @@
 - `hexapod_compare_runtime.m`
   CoppeliaSim 自动重启与远程接口准备。保留当前的 ZMQ `23000` + 临时 legacy remoteApi `20001` 链路。
 - `hexapod_compare_trajectory.m`
-  单 case 执行与轨迹准备。负责当前 PG、旧 `.mat` 轨迹、origin 初始版生成、ditch half 回放和 ditch 闭环流程的分发。
+  单 case 执行与轨迹准备。负责当前 PG、旧 `.mat` 轨迹、origin 初始版生成、ditch half 生成后回放和 ditch 闭环流程的分发。
 - `hexapod_compare_report.m`
   compare 输出目录和汇总逻辑。负责 `compare_run_index.csv`、`compare_latest3_index.csv`、`compare_aggregate_latest3.csv`、`compare_latest3_summary.md`。
 - `hexapod_run_compare_batch.m`
   兼容壳。保留旧调用方式，内部直接转发到 `hexapod_compare_batch(...)`。
 
-当前 compare 目录最终只保留：
+当前 compare 主链路文件如下：
 
 ```text
 MAIN/compare/
@@ -30,6 +30,17 @@ MAIN/compare/
   hexapod_legacy_remote_api_ctl.py
   README.md
 ```
+
+另外，工程里当前还保留一组历史报告整理脚本：
+
+```text
+MAIN/compare/metircs_analyze/
+  hexapod_plot_midterm_ditch.m
+  hexapod_plot_midterm_slope.m
+  hexapod_plot_midterm_step.m
+```
+
+这组脚本不参与 compare 主执行链路，也不会影响批处理、CoppeliaSim 自动重启、轨迹回放或指标汇总。它们只是已有结果的后处理/出图脚本，因此这里单独说明，避免把“主链路收敛”误解成“目录里不存在任何其他脚本”。
 
 ## 2. lib 现在的分层
 
@@ -92,6 +103,7 @@ case 注册在 `hexapod_compare_registry('cases')` 中，当前可用：
 
 - 一次批处理只允许放同一场景下的 case。
 - slope / step / ditch 三类场景都保留可运行。
+- ditch_half_mid 不再绑定静态 .mat。每个 repeat 会先运行 MAIN/6leg_motion/ditch/CoppeliaSim_learn_ditch_half.m 生成当次中间轨迹，再重启 CoppeliaSim 并回放该次生成结果后计入 compare 指标。
 
 ## 5. 最常用的运行方法
 
@@ -195,7 +207,7 @@ compare 结束后仍输出 4 份核心文件：
 - `hexapod_compare_runtime.m`
   并入了旧的重启、PowerShell 命令生成、端口等待、场景就绪探测。
 - `hexapod_compare_trajectory.m`
-  并入了旧的单 case 执行、轨迹加载、轨迹重采样、origin 初始版生成、ditch half 回放。
+  并入了旧的单 case 执行、轨迹加载、轨迹重采样、origin 初始版生成、ditch half 生成后回放。
 - `hexapod_compare_report.m`
   并入了旧的 compare 目录创建和 metrics 汇总。
 
@@ -221,3 +233,21 @@ hexapod_run_compare_batch({'slope_current', 'slope_baseline'}, struct('num_repea
 - MATLAB 与 CoppeliaSim 的通信底层仍然是 `lib/remote_api/MatlabVrep.m`
 
 所以这次重构的重点是结构收敛和路径治理，不是改 compare 的实验语义。
+
+## 12. 当前工程实际与 compare README 的对应关系
+
+如果你只关心“正式对比实验怎么跑”，那 README 里关于以下几部分与工程实际是一致的：
+
+- compare 正式入口是 `hexapod_compare_batch.m`
+- 旧入口 `hexapod_run_compare_batch.m` 只是兼容转发
+- case 注册来自 `hexapod_compare_registry('cases')`
+- 单次执行与轨迹准备来自 `hexapod_compare_trajectory.m`
+- 自动重启链路仍是 ZMQ `23000` + 临时 legacy remoteApi `20001`
+- 汇总输出仍是 `compare_run_index.csv`、`compare_latest3_index.csv`、`compare_aggregate_latest3.csv`、`compare_latest3_summary.md`
+
+唯一需要按工程实际修正理解的是目录层面：
+
+- README 里原先写成了 `MAIN/compare` “最终只保留” 8 个文件
+- 实际工程还保留了 `metircs_analyze/` 作为历史结果分析脚本目录
+
+也就是说，compare 的主逻辑与 README 描述基本一致；不一致的地方主要是目录说明，现在已按工程现状补齐。

@@ -98,8 +98,10 @@ switch cfg.source_type
         export_meta.source_artifact_path = save_joint_artifact(joint, artifact_dir, cfg.case_id);
         CoppeliaSim_process({cfg.pattern}, {joint}, export_meta);
 
-    case 'ditch_half_replay'
-        learned_mat_path = run_ditch_half_baseline(cfg.script_path);
+    case 'ditch_half_generate_replay'
+        [learned_mat_path, replay_launch_info] = run_ditch_half_generate_replay(cfg, options, export_meta);
+        export_meta = apply_launch_info(export_meta, replay_launch_info);
+        result.coppeliasim_launch_info = replay_launch_info;
         joint = load_joint_matrix(learned_mat_path);
         [joint, export_meta] = normalize_joint_for_export(joint, export_meta, cfg.case_id, artifact_dir);
         export_meta.original_source_artifact = learned_mat_path;
@@ -148,15 +150,8 @@ switch cfg.source_type
         [~, info] = generate_origin_initial('ditch', struct('probe_only', true));
         frame_count = info.natural_total_frames;
 
-    case 'ditch_half_replay'
-        if exist(cfg.mat_path, 'file')
-            joint = load_joint_matrix(cfg.mat_path);
-            frame_count = size(joint, 1);
-        else
-            learned_mat_path = run_ditch_half_baseline(cfg.script_path);
-            joint = load_joint_matrix(learned_mat_path);
-            frame_count = size(joint, 1);
-        end
+    case 'ditch_half_generate_replay'
+        frame_count = probe_ditch_half_generation_frame_count(cfg.script_path);
 
     case 'ditch_final_closed_loop'
         base_path = fullfile(fileparts(cfg.script_path), 'export_data', 'xyz_base.mat');
@@ -190,17 +185,7 @@ export_meta.natural_total_frames = NaN;
 export_meta.frame_normalization = 'none';
 
 launch_info = get_option(options, 'coppeliasim_launch_info', struct());
-if ~isempty(launch_info)
-    export_meta.coppeliasim_exe_path = get_launch_field(launch_info, 'exe_path', '');
-    export_meta.coppeliasim_scene_path = get_launch_field(launch_info, 'scene_path', '');
-    export_meta.coppeliasim_port = get_launch_field(launch_info, 'port', NaN);
-    export_meta.coppeliasim_host = get_launch_field(launch_info, 'host', '');
-    export_meta.coppeliasim_auto_restart = get_launch_field(launch_info, 'auto_restart', NaN);
-    export_meta.coppeliasim_restart_performed = get_launch_field(launch_info, 'restart_performed', NaN);
-    export_meta.coppeliasim_startup_wait_sec = get_launch_field(launch_info, 'startup_wait_sec', NaN);
-    export_meta.coppeliasim_shutdown_wait_sec = get_launch_field(launch_info, 'shutdown_wait_sec', NaN);
-    export_meta.coppeliasim_launch_timestamp = get_launch_field(launch_info, 'launch_timestamp', '');
-end
+export_meta = apply_launch_info(export_meta, launch_info);
 end
 
 function [joint, export_meta] = normalize_joint_for_export(joint, export_meta, artifact_name, artifact_dir)
@@ -344,6 +329,8 @@ config.steph = 0.3;
 config.body_x = 0;
 config.step_edge_x = 5.975;
 config.step_height = 0.5;
+config.front_leg_offset_x = 1.75;
+config.step_old_body_rise_travel_m = 5.0;
 config.pit_edge_x = 1.5;
 
 switch scene_key
@@ -422,13 +409,18 @@ end
 function [x, z, zbb] = apply_step_initial(x, z, xbb, zbb, config)
 dais = config.step_edge_x;
 wh = config.step_height;
-body_rise_per_phase = wh / max((5 / max(config.v, eps)) / config.tt, 1);
+front_reach_x = dais - config.front_leg_offset_x;
+body_rise_per_phase = wh / max((config.step_old_body_rise_travel_m / max(config.v, eps)) / config.tt, 1);
 
 for ii = 1:size(x, 2)
     if ii > 1
         zbb(ii) = zbb(ii - 1);
     end
-    if xbb(ii) < (dais - 2.5) && xbb(ii) > (dais - 7.5)
+
+    % 旧方案的整体抬升逻辑在前腿刚到台阶前沿时就开始介入，
+    % 这里保持其“介入较早、线性抬升”的特点，但修正到和当前几何定义一致：
+    % 横轴以质心为准，因此触发点应为 dais - 1.75。
+    if xbb(ii) >= front_reach_x
         zbb(ii) = zbb(ii) + body_rise_per_phase;
     end
     zbb(ii) = min(zbb(ii), wh);
@@ -436,6 +428,13 @@ for ii = 1:size(x, 2)
     for jj = 1:6
         if x(jj, ii) >= dais
             z(jj, ii) = z(jj, ii) + wh;
+        end
+
+        % 旧方案在台阶边缘附近还会叠加一层额外抬脚，
+        % 这也是后续修正中要去掉的问题之一。这里保留该特征，
+        % 使 compare 中的旧方案更接近原始行为。
+        if ii > 1 && x(jj, ii) > (dais - 0.2)
+            z(jj, ii) = z(jj, ii) + 0.1;
         end
     end
 end
@@ -537,7 +536,27 @@ for i = 1:size(x0, 2)
 end
 end
 
-function learned_mat_path = run_ditch_half_baseline(script_path)
+function [learned_mat_path, replay_launch_info] = run_ditch_half_generate_replay(cfg, options, export_meta)
+if nargin < 1 || isempty(cfg)
+    error('hexapod_compare_trajectory:MissingConfig', 'ditch_half_generate_replay 需要 case 配置。');
+end
+if nargin < 2 || isempty(options)
+    options = struct();
+end
+if nargin < 3 || isempty(export_meta)
+    export_meta = struct();
+end
+
+learned_mat_path = invoke_ditch_half_generator(cfg.script_path, export_meta);
+fprintf('[ditch_half_mid] 中间轨迹生成完成，准备重启 CoppeliaSim 执行回放...\n');
+replay_launch_info = hexapod_compare_runtime('restart_coppeliasim_for_scene', cfg.scene_name, options);
+fprintf('[ditch_half_mid] 回放场景就绪: %s\n', replay_launch_info.scene_path);
+if replay_launch_info.restart_performed
+    fprintf('[ditch_half_mid] 回放启动等待时间: %.2f s\n', replay_launch_info.startup_wait_sec);
+end
+end
+
+function frame_count = probe_ditch_half_generation_frame_count(script_path)
 if nargin < 1 || isempty(script_path)
     cases = hexapod_compare_registry('cases');
     match = strcmp({cases.case_id}, 'ditch_half_mid');
@@ -546,15 +565,51 @@ end
 if ~exist(script_path, 'file')
     error('hexapod_compare_trajectory:ScriptNotFound', '未找到脚本: %s', script_path);
 end
-script_dir = fileparts(script_path);
-learned_mat_path = fullfile(script_dir, 'export_data', 'walk_ditch_learned.mat');
-orig_dir = pwd;
-cleanup_obj = onCleanup(@() cd(orig_dir)); %#ok<NASGU>
-cd(script_dir);
-run(script_path);
-if ~exist(learned_mat_path, 'file')
-    error('hexapod_compare_trajectory:OutputNotFound', '脚本执行后未生成: %s', learned_mat_path);
+base_path = fullfile(fileparts(script_path), 'export_data', 'xyz_base.mat');
+if ~exist(base_path, 'file')
+    error('hexapod_compare_trajectory:BasePathNotFound', '未找到深沟中间版基础轨迹: %s', base_path);
 end
+data = load(base_path, 'xq');
+frame_count = numel(data.xq);
+end
+
+function learned_mat_path = invoke_ditch_half_generator(script_path, export_meta)
+if nargin < 1 || isempty(script_path)
+    error('hexapod_compare_trajectory:MissingScriptPath', '必须提供深沟中间版生成脚本路径。');
+end
+if nargin < 2 || isempty(export_meta)
+    export_meta = struct();
+end
+if ~exist(script_path, 'file')
+    error('hexapod_compare_trajectory:ScriptNotFound', '未找到脚本: %s', script_path);
+end
+[script_dir, function_name] = fileparts(script_path);
+if isempty(which(function_name)) || ~strcmp(which(function_name), script_path)
+    addpath(script_dir, '-begin');
+end
+generator_fn = str2func(function_name);
+learned_mat_path = generator_fn(export_meta);
+if isempty(learned_mat_path) || exist(learned_mat_path, 'file') ~= 2
+    error('hexapod_compare_trajectory:OutputNotFound', '中间版生成脚本执行后未生成轨迹文件: %s', string(learned_mat_path));
+end
+end
+
+function export_meta = apply_launch_info(export_meta, launch_info)
+if nargin < 1 || isempty(export_meta)
+    export_meta = struct();
+end
+if nargin < 2 || isempty(launch_info)
+    return;
+end
+export_meta.coppeliasim_exe_path = get_launch_field(launch_info, 'exe_path', '');
+export_meta.coppeliasim_scene_path = get_launch_field(launch_info, 'scene_path', '');
+export_meta.coppeliasim_port = get_launch_field(launch_info, 'port', NaN);
+export_meta.coppeliasim_host = get_launch_field(launch_info, 'host', '');
+export_meta.coppeliasim_auto_restart = get_launch_field(launch_info, 'auto_restart', NaN);
+export_meta.coppeliasim_restart_performed = get_launch_field(launch_info, 'restart_performed', NaN);
+export_meta.coppeliasim_startup_wait_sec = get_launch_field(launch_info, 'startup_wait_sec', NaN);
+export_meta.coppeliasim_shutdown_wait_sec = get_launch_field(launch_info, 'shutdown_wait_sec', NaN);
+export_meta.coppeliasim_launch_timestamp = get_launch_field(launch_info, 'launch_timestamp', '');
 end
 
 function value = get_option(options, field_name, default_value)
@@ -582,4 +637,3 @@ if ~any(strcmp(current_paths, string(setup_dir)))
 end
 hexapod_setup_paths();
 end
-

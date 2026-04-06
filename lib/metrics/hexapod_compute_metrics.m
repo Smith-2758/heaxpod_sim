@@ -25,6 +25,8 @@ end
 dt = get_control_dt_sec(telemetry, meta);
 body_euler = align_matrix(get_struct_field(telemetry, 'bodyEulerDeg', []), sample_count, 3, NaN);
 leg_force = align_matrix(get_struct_field(telemetry, 'legForceMag', []), sample_count, 6, NaN);
+[x, y, z, body_euler, leg_force] = trim_leading_position_placeholders(x, y, z, body_euler, leg_force);
+sample_count = numel(x);
 
 time_s = ((0:sample_count - 1)' .* dt);
 valid_pos_mask = ~(isnan(x) | isnan(y) | isnan(z));
@@ -244,6 +246,45 @@ elseif isfield(meta, 'control_dt_ms') && ~isempty(meta.control_dt_ms)
 else
     dt = 0.005;
 end
+end
+
+function [x, y, z, body_euler, leg_force] = trim_leading_position_placeholders(x, y, z, body_euler, leg_force)
+if isempty(x)
+    return;
+end
+
+valid_mask = ~(isnan(x) | isnan(y) | isnan(z));
+valid_indices = find(valid_mask);
+if numel(valid_indices) < 2
+    return;
+end
+
+valid_pos = [x(valid_indices), y(valid_indices), z(valid_indices)];
+norms = sqrt(sum(valid_pos .^ 2, 2));
+zero_tol = 1e-6;
+jump_threshold = 0.5;
+first_nonzero_rel = find(norms > zero_tol, 1, 'first');
+
+if isempty(first_nonzero_rel) || first_nonzero_rel <= 1
+    return;
+end
+
+leading_norms = norms(1:first_nonzero_rel - 1);
+if any(leading_norms > zero_tol)
+    return;
+end
+
+jump_distance = norm(valid_pos(first_nonzero_rel, :) - valid_pos(first_nonzero_rel - 1, :));
+if jump_distance < jump_threshold
+    return;
+end
+
+start_index = valid_indices(first_nonzero_rel);
+x = x(start_index:end);
+y = y(start_index:end);
+z = z(start_index:end);
+body_euler = body_euler(start_index:end, :);
+leg_force = leg_force(start_index:end, :);
 end
 
 function total = sum_without_nan(values, dim)

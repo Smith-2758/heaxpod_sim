@@ -39,6 +39,8 @@ end
 function plot_paths = export_plots(metrics, run_output_dir)
 plot_paths = struct();
 leg_labels = {'右腿1', '右腿2', '右腿3', '左腿1', '左腿2', '左腿3'};
+[rel_x, rel_y, rel_z] = normalize_position_series( ...
+    metrics.series.realX, metrics.series.realY, metrics.series.realZ);
 
 h1 = figure('Name', '各腿末端受力', 'NumberTitle', 'off', 'Visible', 'off');
 for leg_idx = 1:6
@@ -61,22 +63,22 @@ plot_paths.total_force = save_plot_pair(h2, run_output_dir, '02_total_force');
 
 h3 = figure('Name', '轨迹追踪对比', 'NumberTitle', 'off', 'Visible', 'off');
 subplot(3, 1, 1);
-plot(metrics.series.time_s, metrics.series.realX, 'LineWidth', 1.1);
-title('机身 X 位移');
+plot(metrics.series.time_s, rel_x, 'LineWidth', 1.1);
+title('机身 X 相对位移');
 xlabel('时间 (s)');
-ylabel('X (m)');
+ylabel('\DeltaX (m)');
 grid on;
 subplot(3, 1, 2);
-plot(metrics.series.time_s, metrics.series.realY, 'LineWidth', 1.1);
-title('机身 Y 位移');
+plot(metrics.series.time_s, rel_y, 'LineWidth', 1.1);
+title('机身 Y 相对位移');
 xlabel('时间 (s)');
-ylabel('Y (m)');
+ylabel('\DeltaY (m)');
 grid on;
 subplot(3, 1, 3);
-plot(metrics.series.realX, metrics.series.realZ, 'LineWidth', 1.1);
-title('机身 X-Z 轨迹');
-xlabel('X (m)');
-ylabel('Z (m)');
+plot(rel_x, rel_z, 'LineWidth', 1.1);
+title('机身 X-Z 相对轨迹');
+xlabel('\DeltaX (m)');
+ylabel('\DeltaZ (m)');
 grid on;
 plot_paths.trajectory = save_plot_pair(h3, run_output_dir, '03_trajectory_tracking');
 
@@ -112,6 +114,25 @@ saveas(fig_handle, png_path);
 savefig(fig_handle, fig_path);
 close(fig_handle);
 paths = struct('png', png_path, 'fig', fig_path);
+end
+
+function [rel_x, rel_y, rel_z] = normalize_position_series(x, y, z)
+rel_x = x;
+rel_y = y;
+rel_z = z;
+
+if isempty(x) || isempty(y) || isempty(z)
+    return;
+end
+
+valid_idx = find(~(isnan(x) | isnan(y) | isnan(z)), 1, 'first');
+if isempty(valid_idx)
+    return;
+end
+
+rel_x = x - x(valid_idx);
+rel_y = y - y(valid_idx);
+rel_z = z - z(valid_idx);
 end
 
 function write_metrics_summary(md_path, metrics, plot_paths)

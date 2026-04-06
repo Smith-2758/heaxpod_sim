@@ -121,4 +121,32 @@
 
 第二，最开始设想的重心后移并没有明显发挥作用。代码里虽然加上了前腿未确认时的后移阶段，但从实际效果看，机器人在刚靠近坑边时并没有明显把重心压住，这一部分还需要继续调。
 
-第三，也是目前最关键的问题，是机器人伸腿入坑这件事还不够自然。现在很多时候，机器人只有在姿态已经有一点失稳时，腿才比较容易真正伸进坑里；如果机身状态过于稳定，足端反而不太容易下探到坑中。这说明目前伸腿动作和整机姿态之间的配合还不够理想，后续还要继续针对这一点做处理。
+第三，也是目前最关键的问题，是机器人伸腿入坑这件事还不够自然。现在很多时候，机器人只有在姿态已经有一点失稳时，腿才比较容易真正伸进坑里；如果机身状态过于稳定，足端反而不太容易下探到坑中。这说明目前伸腿动作和整机姿态之间的配合还不够理想，后续还要继续针对这一点做处理。结合最近几轮仿真现象来看，这个问题还有可能和关节限位有关，也就是说，某些姿态下并不只是控制没有继续下探，而是关节活动范围本身已经接近极限，导致足端伸入坑中的空间不够。这个判断现在还属于阶段性观察，后面需要结合关节角变化和限位设置再做核实。
+
+## 八、下一阶段重点工作（2026-03-31）
+在前面几轮深沟半闭环调试的基础上，接下来准备把重点工作收束到三个方向。
+
+### 1. 引入 ZMP 控制
+当前复杂地形通过时，稳定性主要还是靠步态节奏、力觉反馈和分段式重心补偿来维持，缺少一套统一的稳定性判据。下一步考虑把 ZMP 控制引进来，用支撑域与零力矩点的关系来约束机体姿态和重心转移，这样后续无论是跨坑、上坡还是上下台阶，都能有更明确的稳定性分析依据。
+
+### 2. 提升场景复杂度
+目前场景还是偏单一，后续不准备只停留在“单独上坡、单独上台阶、单独跨坑”这三类基础场景上。具体计划是把斜坡扩展为“上坡再下坡”的连续地形，把台阶扩展为“上台阶再下台阶”的连续通过过程，同时把现在的单一坑升级为坑坑洼洼的不规则路段，用来检验控制算法在连续复杂扰动下的适应能力。
+
+### 3. 进一步凝练创新点
+后续论文和方案设计里的创新点，准备重点往两个方向靠。一个是“轻落地”，也就是尽量减小足端触地时的冲击和反弹；另一个是“质心速度与位置的平滑稳定”，不仅要求机器人能够通过障碍，还希望它在通过过程中质心轨迹更平顺、速度变化更连续、姿态更稳定。这样后续的算法优化和实验展示就不只是强调“能过去”，而是进一步强调“过去得更稳、更柔和”。
+
+## 九、当前阶段性工作总结（中期）
+截至目前，斜坡、高台和深沟三类典型复杂地形都已经形成了可以用于中期报告撰写的“前方案/当前方案”对应关系，后续量化分析可以直接围绕这些代码和轨迹工件展开。
+
+### 1. 斜坡场景
+- 前方案：基准代码目前未保留，可将其理解为“只做简单足端高度上升”的开环思路；当前对比所用旧轨迹工件为 `D:\codehub\hexapod\轨迹仿真程序\MAIN\6leg_motion\export_data\walk_slope_backup.mat`。
+- 当前方案：代码入口为 `D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\walk_slope.m`，生成轨迹为 `D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\export_data\walk_slope.mat`，仿真执行入口为 `D:\codehub\hexapod\hexapod_sim_core\MAIN\CoppeliaSim_process.m`。
+
+### 2. 高台场景
+- 前方案：代码入口为 `D:\codehub\hexapod\轨迹仿真程序\MAIN\6leg_motion\export_data\origin\walk3step.m`，原始思路是基于阈值的台阶高度补偿和较早整体抬升；对比运行时所用初始版轨迹由 `D:\codehub\hexapod\hexapod_sim_core\MAIN\compare\hexapod_compare_trajectory.m` 中的 `generate_origin_initial('step')` 复现，并写入各次实验目录下的 `source_artifacts\step_initial_joint_used.mat`。
+- 当前方案：代码入口为 `D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\walk3step_high.m`，生成轨迹为 `D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\export_data\walk3step_high.mat`，由 `D:\codehub\hexapod\hexapod_sim_core\MAIN\PG.m` 的 `climb2wall` 分支加载执行。
+
+### 3. 深沟场景
+- 前方案：基准开环跨坑逻辑来自 `D:\codehub\hexapod\轨迹仿真程序\MAIN\6leg_motion\export_data\origin\walk3step.m` 中的跨坑段；对比运行时所用初始版轨迹由 `D:\codehub\hexapod\hexapod_sim_core\MAIN\compare\hexapod_compare_trajectory.m` 中的 `generate_origin_initial('ditch')` 复现，并写入各次实验目录下的 `source_artifacts\ditch_initial_joint_used.mat`。
+- 当前方案：基准探测轨迹生成代码为 `D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\ditch\walk_ditch.m`，生成 `D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\export_data\walk_ditch.mat`；当前半闭环示教代码为 `D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\ditch\CoppeliaSim_learn_ditch.m`，生成回放轨迹 `D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\ditch\export_data\walk_ditch_learned.mat`；
+- 中间版半闭环脚本为 `D:\codehub\hexapod\轨迹仿真程序\MAIN\6leg_motion\ditch\success\CoppeliaSim_learn_ditch_half.m`。

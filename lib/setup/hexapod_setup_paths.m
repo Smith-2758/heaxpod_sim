@@ -32,6 +32,7 @@ required_paths = {
     fullfile(project_root, 'lib', 'remote_api')
     fullfile(project_root, 'MAIN')
     fullfile(project_root, 'MAIN', 'compare')
+    fullfile(project_root, 'MAIN', 'compare', 'metircs_analyze')
     fullfile(project_root, 'MAIN', '6leg_motion')
     fullfile(project_root, 'MAIN', '6leg_motion', 'ditch')
     fullfile(project_root, 'MAIN', 'black_description')
