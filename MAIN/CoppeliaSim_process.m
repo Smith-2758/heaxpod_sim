@@ -113,6 +113,11 @@ switch pattern{1}
         vrobot.set_body_p(position);
         eulerAngles=[0;0;0]/rad2deg;
         vrobot.set_body_o(eulerAngles);
+    case 'step_platform5m'
+        position = [3.8;0;2.7];
+        vrobot.set_body_p(position);
+        eulerAngles=[0;0;0]/rad2deg;
+        vrobot.set_body_o(eulerAngles);
 %                 position = [-2.9;10;3.6];
 %         vrobot.set_body_p(position);
 %         eulerAngles=[0;30;0]/rad2deg;
@@ -131,6 +136,11 @@ switch pattern{1}
 
     case 'slope'  %% 15度斜坡地形
         % 机器人起点：贴近地面，设置 X 为 3.8（距离坡底 5.975 - 3.8 = 2.175m）
+        position = [3.8; 0; 2.7];
+        vrobot.set_body_p(position);
+        eulerAngles = [0; 0; 0] / rad2deg;
+        vrobot.set_body_o(eulerAngles);
+    case 'slope_3m_4m_3m'
         position = [3.8; 0; 2.7];
         vrobot.set_body_p(position);
         eulerAngles = [0; 0; 0] / rad2deg;

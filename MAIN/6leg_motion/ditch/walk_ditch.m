@@ -24,7 +24,7 @@ zf0 = -2.05 + body_z;  % 地面高度基准 (足端相对高度)
 
 % 动态步态属性
 v = 0.35;              % 行走速度 (m/s)
-t_total = 20;          % 仿真预测总时长 (s)
+t_total = 30;          % 仿真预测总时长 (s)
 stept  = 0.9 / v;      % 计算一个大周期的时长
 tt     = stept / 12;   % 离散相位时长
 step0  = v * stept;      % 标准总步长
@@ -52,7 +52,7 @@ x_0 = [x01; x02; x03; x01; x02; x03];
 x   = repmat(x_0, 1, length(t));
 
 %% 3. 足端 Y/Z 探测相生成
-y(1:3, :) = yr0; y(4:6, :) = yl0; 
+y = [yr0 * ones(3, length(t)); yl0 * ones(3, length(t))];
 
 % 初始支撑相：设定为过触地探测模式 zf0 - 0.10m
 z = (zf0 - probe_depth) * ones(6, length(t));

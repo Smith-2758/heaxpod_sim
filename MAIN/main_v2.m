@@ -81,7 +81,12 @@ pattern = { 'ditch' };  % 其他可扩展模式：'stand_crawl','crawl','low_cra
 %   6）循环过程中，实时读取力传感器/机体位姿等数据，用于后续分析；
 %   7）仿真结束后，暂停并停止仿真，画出各腿受力和总受力曲线。
 
-CoppeliaSim_process(pattern, Joint);
+export_meta = hexapod_main_export_meta_from_env();
+if isempty(fieldnames(export_meta))
+    CoppeliaSim_process(pattern, Joint);
+else
+    CoppeliaSim_process(pattern, Joint, export_meta);
+end
 
 % 到这里，本脚本的任务就完成了：
 %  - 上半部分负责“决定做什么动作 + 生成动作轨迹”；

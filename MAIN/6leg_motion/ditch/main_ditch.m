@@ -10,9 +10,10 @@ clear; clc; close all;
 
 % 作为独立入口运行时，先把项目根目录及其子目录加入搜索路径，
 % 否则在干净 MATLAB 会话里找不到 lib/MatlabVrep.m 等依赖。
-project_root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
-addpath(genpath(project_root));
-
+% 先显式加入路径初始化工具，再通过统一入口补齐依赖路径。
+setup_dir = fullfile(fileparts(fileparts(fileparts(fileparts(mfilename('fullpath'))))), 'lib', 'setup');
+addpath(setup_dir);
+hexapod_setup_paths();
 orig_dir = pwd;
 cleanup_obj = onCleanup(@() cd(orig_dir));
 

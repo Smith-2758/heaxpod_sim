@@ -78,10 +78,9 @@ classdef MatlabVrep
         function mvrep = init(vrep)
             mvrep = vrep;
 
-            if mvrep.Close_All_Connections_Before_Init
-                fprintf('[MatlabVrep] 正在关闭 remoteApi 库中的残留连接...\n');
-                mvrep.Main.simxFinish(-1);
-            end
+            % 无条件关闭残留连接，避免端口占用导致重连失败
+            fprintf('[MatlabVrep] 正在关闭 remoteApi 库中的残留连接...\n');
+            mvrep.Main.simxFinish(-1);
 
             fprintf('[MatlabVrep] 正在连接 remoteApi 127.0.0.1:%d...\n', mvrep.Port);
             connect_tic = tic;
@@ -170,6 +169,7 @@ classdef MatlabVrep
 
         function [] = stop(vrep)
             vrep.Main.simxStopSimulation(vrep.ClientID, vrep.Main.simx_opmode_blocking);
+            pause(0.5);  % 等待 CoppeliaSim 完全停止仿真
             vrep.Main.simxFinish(vrep.ClientID);
         end
 

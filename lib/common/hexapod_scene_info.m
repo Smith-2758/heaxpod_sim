@@ -7,7 +7,9 @@ scene_name = lower(strtrim(scene_name));
 switch scene_name
     case {'climb2wall', 'step', 'step_up', 'high_step'}
         scene_key = 'step';
-    case {'slope', 'climbing'}
+    case {'step_platform5m'}
+        scene_key = 'step';
+    case {'slope', 'climbing', 'slope_3m_4m_3m'}
         scene_key = 'slope';
     case {'ditch', 'pit'}
         scene_key = 'ditch';

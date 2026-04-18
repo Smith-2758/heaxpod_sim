@@ -28,6 +28,9 @@ for ii=1:num
             % b=load('joint1.mat');
             b = load(fullfile(export_data_dir, 'walk3step_high.mat'));
             Joint{ii} =b.joint;
+        case 'step_platform5m'
+            b = load(fullfile(export_data_dir, 'walk_step_platform5m.mat'));
+            Joint{ii} = b.joint;
         case 'climbing'
             % b=load('joint3_1.mat');
             b = load(fullfile(export_data_dir, 'origin', 'dais3step.mat'));%_2
@@ -40,6 +43,26 @@ for ii=1:num
             Joint{ii} = b.joint;
             if isfield(b, 'pitch0')
                 Pitch{ii} = b.pitch0;
+            end
+        case 'slope_3m_4m_3m'  %% 3m-4m-3m 斜坡地形
+            b = load(fullfile(export_data_dir, 'walk_slope_3m_4m_3m.mat'));
+            slope_down_end_x = 15.975;
+            post_flat_stop_margin_x = 2.5;
+            if isfield(b, 'xb')
+                trim_extra = struct();
+                if isfield(b, 'pitch0')
+                    trim_extra.pitch0 = b.pitch0;
+                end
+                [Joint{ii}, ~, trimmed_extra] = hexapod_trim_trajectory_tail_by_body_x( ...
+                    b.joint, b.xb, slope_down_end_x + post_flat_stop_margin_x, trim_extra);
+                if isfield(trimmed_extra, 'pitch0')
+                    Pitch{ii} = trimmed_extra.pitch0;
+                end
+            else
+                Joint{ii} = b.joint;
+                if isfield(b, 'pitch0')
+                    Pitch{ii} = b.pitch0;
+                end
             end
         case 'ditch'  %% 深沟地形（50cm宽，50cm深）
             b = load(fullfile(export_data_dir, 'walk_ditch.mat'));
