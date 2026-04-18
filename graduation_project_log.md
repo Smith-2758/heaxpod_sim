@@ -148,7 +148,8 @@
 
 ### 3. 深沟场景
 - 前方案：基准开环跨坑逻辑来自 `D:\codehub\hexapod\轨迹仿真程序\MAIN\6leg_motion\export_data\origin\walk3step.m` 中的跨坑段；对比运行时所用初始版轨迹由 `D:\codehub\hexapod\hexapod_sim_core\MAIN\compare\hexapod_compare_trajectory.m` 中的 `generate_origin_initial('ditch')` 复现，并写入各次实验目录下的 `source_artifacts\ditch_initial_joint_used.mat`。
-- 当前方案：基准探测轨迹生成代码为 `D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\ditch\walk_ditch.m`，生成 `D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\export_data\walk_ditch.mat`；当前半闭环示教代码为 `D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\ditch\CoppeliaSim_learn_ditch.m`，生成回放轨迹 `D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\ditch\export_data\walk_ditch_learned.mat`；
+- 当前方案（基础半闭环版）：基准探测轨迹生成代码为 `D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\ditch\walk_ditch.m`，生成 `D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\ditch\export_data\xyz_base.mat`；基础半闭环示教代码为 `D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\ditch\CoppeliaSim_learn_ditch.m`，生成回放轨迹 `D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\ditch\export_data\walk_ditch_learned.mat`。
+- 当前方案（复杂场景版）：在同一基准探测轨迹基础上，`D:\codehub\hexapod\hexapod_sim_core\MAIN\6leg_motion\ditch\CoppeliaSim_learn_ditch_sidepits.m` 已可处理侧坑和多坑场景，并在输出目录中生成学习后轨迹以及统一指标摘要文件。
 - 中间版半闭环脚本为 `D:\codehub\hexapod\轨迹仿真程序\MAIN\6leg_motion\ditch\success\CoppeliaSim_learn_ditch_half.m`。
 
 ## 十、连续复杂地形（斜坡、台阶）测试与对比（2026-04-04 至 2026-04-15）
@@ -166,9 +167,9 @@
 - **两段式重心预降（Descend Prep）**：原先上台阶后机体一直保持 `0.4 m`抬升高度。为确保下台阶时腿部有足够的下探行程，在距平台边沿前段，先控制机体缓降至 `0.12 m`（即 `zbb_platform * 0.30`）的预备高度，在脱离高台后再完全回落至地面基准 `0 m`。
 - **向下边缘保护窗优先机制**：虽然原先的上台阶脚本中已有基础防擦窗，但本脚本针对下台阶进行了特殊参数优化。将下台阶检测窗（`edge_window_down`）放宽至 0.30 m，抬脚余量（`edge_clearance_down`）增加到 0.20 m，并用 `max(z, z_descent_apex)` 强制剥离绝对坐标，保证摆脚必然高于平台表面，彻底封死下坎探步阶段的边缘磕碰可能。
 
-## 十一、深沟侧坑半闭环跨越算法继续修正（2026-04-15 至 2026-04-18）
+## 十一、深沟侧坑半闭环跨越算法完善与完成记录（2026-04-15 至 2026-04-18）
 
-这几天主要是在 `MAIN/6leg_motion/ditch/CoppeliaSim_learn_ditch.m` 的基础上，继续把深沟半闭环控制往侧坑和多坑场景上扩展。调整的重点不是再换一套新的控制框架，而是把原有状态机、判坑依据和单腿脱困逻辑改得更稳一些。当前主要完成了四类修改：一是把会影响控制判断的足端位置统一改成真实传感坐标；二是继续整理跨坑恢复状态机，统一二次跨越步长并简化回撤规则；三是给单腿脱困增加同侧前后腿的安全距离约束；四是增加“任务完成即停”的结束条件，让仿真在最后两条后腿稳定越过最后一个坑后就结束。
+这几天的工作，是在 `MAIN/6leg_motion/ditch/CoppeliaSim_learn_ditch.m` 的基础上，把深沟半闭环控制进一步收束成了可处理侧坑和多坑的复杂场景版本。调整的重点不是再换一套新的控制框架，而是把原有状态机、判坑依据和单腿脱困逻辑整理得更稳、更一致。当前已经完成的核心修改主要有四类：一是把会影响控制判断的足端位置统一改成真实传感坐标；二是继续整理跨坑恢复状态机，统一二次跨越步长并简化回撤规则；三是给单腿脱困增加同侧前后腿的安全距离约束；四是增加“任务完成即停”的结束条件，让仿真在最后两条后腿稳定越过最后一个坑后就结束。
 
 ### 1. 将判坑依据统一到真实足端坐标
 相对于 `CoppeliaSim_learn_ditch.m`，这次首先处理的是足端位置的判定依据。之前程序里还有一部分判断沿用了由机体坐标和理论步态位置换算出来的估算世界坐标。在单坑场景中这种写法有时还能工作，但到了侧坑和多坑场景，误差会被放大，容易出现日志里显示足端已经进坑，而场景中实际位置还在坑外的情况。针对这一点，当前脚本改成了每一物理帧先统一读取 6 条腿 `Force_sensor_Handle` 的真实 `X/Y/Z`，后续涉及探测窗口、单腿脱困、辅助脱困、坑位匹配以及前腿和中腿过坑确认的判断，都直接使用这组真实坐标。这样处理后，程序判断和场景实际位置已经能对应起来，多坑情况下的误匹配也少了很多。
@@ -183,4 +184,4 @@
 原来的结束条件主要还是参考轨迹是否跑完，也就是 `kk` 是否走完整段步态。这样写的问题是，即使机器人已经完成过坑，程序也会继续把剩余参考帧走完。当前版本在此基础上增加了任务完成判据：只要最后两条后腿已经回到稳定支撑状态，并且它们的真实足端 `X` 都越过了最后一个坑的后沿，程序就直接结束本轮仿真。这样处理以后，仿真结束时刻不再完全依赖轨迹长度，而是和实际过坑完成时刻对应起来，后面统计有效仿真时长和恢复次数时也会更合理。
 
 ### 5. 这一轮修改后的整体变化
-总体来看，这一轮工作相对于 `CoppeliaSim_learn_ditch.m` 的基础版本，主要不是增加了很多新的动作，而是把原来已经有的判坑、恢复和脱困逻辑继续做实。现在程序在侧坑场景中的进坑判断、恢复触发、局部避碰和结束条件，已经能够建立在同一套真实足端坐标和明确几何关系上。这样做之后，脚本虽然还是半闭环结构，但判断依据和动作边界比之前清楚得多，后面如果继续往更复杂的坑洼场景扩展，也更容易分析问题出在哪一层。
+总体来看，这一轮工作相对于 `CoppeliaSim_learn_ditch.m` 的基础版本，主要不是增加了很多新的动作，而是把原来已经有的判坑、恢复和脱困逻辑继续做实。现在程序在侧坑和多坑场景中的进坑判断、恢复触发、局部避碰和结束条件，已经能够建立在同一套真实足端坐标和明确几何关系上。与此同时，这一版脚本也已经接入统一指标导出，运行后会在输出目录中保存学习后轨迹以及 `metrics.mat`、`metrics_summary.md`。这说明深沟复杂场景版本已经从“继续尝试扩展”推进到了“独立链路基本成型”的阶段。后续如果继续往更复杂的坑洼场景扩展，重点将更多落在稳定性、效率和主流程统一上，而不是再从头搭一套新框架。
