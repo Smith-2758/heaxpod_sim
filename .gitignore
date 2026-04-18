@@ -3,3 +3,20 @@ docs/
 log/*
 test/
 tests/
+
+# AI tool local configs
+.agents/
+.claude/
+.codex/
+.superpowers/
+.trellis/
+AGENTS.md
+
+# Local scratch / generated artifacts
+tmp/
+=
+MAIN/6leg_motion/ditch/export_data/walk_ditch_half_generated.mat
+
+# .NET build output under tools/
+tools/docx-midterm-insert/bin/
+tools/docx-midterm-insert/obj/
