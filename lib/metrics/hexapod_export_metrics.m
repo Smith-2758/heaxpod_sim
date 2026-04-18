@@ -105,6 +105,33 @@ ylabel('角度 (deg)');
 legend({'roll', 'pitch', 'yaw'}, 'Location', 'best');
 grid on;
 plot_paths.attitude = save_plot_pair(h5, run_output_dir, '05_body_attitude');
+
+h6 = figure('Name', 'ZMP Stability', 'NumberTitle', 'off', 'Visible', 'off');
+subplot(3, 1, 1);
+plot(metrics.series.time_s, metrics.series.stability_margin, 'LineWidth', 1.1);
+title('稳定裕度 SM');
+xlabel('时间 (s)');
+ylabel('SM (m)');
+grid on;
+
+subplot(3, 1, 2);
+plot(metrics.series.time_s, metrics.series.zmp_x, 'LineWidth', 1.1); hold on;
+plot(metrics.series.time_s, metrics.series.zmp_y, 'LineWidth', 1.1); hold off;
+title('ZMP 位置');
+xlabel('时间 (s)');
+ylabel('位置 (m)');
+legend({'zmp\_x', 'zmp\_y'}, 'Location', 'best');
+grid on;
+
+subplot(3, 1, 3);
+plot(metrics.series.time_s, metrics.series.stance_count, 'LineWidth', 1.1); hold on;
+stairs(metrics.series.time_s, double(metrics.series.zmp_inside_polygon_flag), '--', 'LineWidth', 1.0); hold off;
+title('支撑腿数量与 ZMP 是否在多边形内');
+xlabel('时间 (s)');
+ylabel('计数 / 标志');
+legend({'stance\_count', 'inside\_polygon'}, 'Location', 'best');
+grid on;
+plot_paths.zmp_stability = save_plot_pair(h6, run_output_dir, '06_zmp_stability');
 end
 
 function paths = save_plot_pair(fig_handle, run_output_dir, base_name)

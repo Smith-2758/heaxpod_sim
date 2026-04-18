@@ -179,6 +179,7 @@ export_meta.case_description = cfg.description;
 export_meta.compare_group_id = get_option(options, 'compare_group_id', '');
 export_meta.repeat_index = get_option(options, 'repeat_index', NaN);
 export_meta.target_total_frames = get_option(options, 'target_total_frames', []);
+export_meta.zmp_mode = get_option(options, 'zmp_mode', get_struct_field(cfg, 'zmp_mode', ''));
 export_meta.output_dir = run_output_dir;
 export_meta.artifact_output_dir = artifact_dir;
 export_meta.natural_total_frames = NaN;
@@ -186,6 +187,14 @@ export_meta.frame_normalization = 'none';
 
 launch_info = get_option(options, 'coppeliasim_launch_info', struct());
 export_meta = apply_launch_info(export_meta, launch_info);
+end
+
+function value = get_struct_field(s, field_name, default_value)
+if isstruct(s) && isfield(s, field_name)
+    value = s.(field_name);
+else
+    value = default_value;
+end
 end
 
 function [joint, export_meta] = normalize_joint_for_export(joint, export_meta, artifact_name, artifact_dir)

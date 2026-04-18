@@ -163,9 +163,18 @@ realX_log = NaN(max_log_frames, 1); realY_log = NaN(max_log_frames, 1); realZ_lo
 bodyRoll_log = NaN(max_log_frames, 1);
 bodyPitch_log = NaN(max_log_frames, 1);
 bodyYaw_log = NaN(max_log_frames, 1);
+foot_pos_xyz_log = NaN(max_log_frames, 18);
+leg_force_xyz_log = NaN(max_log_frames, 18);
+zmp_freeze_flag = zeros(max_log_frames, 1);
+zmp_yaw_assist_deg = zeros(max_log_frames, 1);
+zmp_x_guard_m = zeros(max_log_frames, 1);
 recover_count_total = 0;
 real_body = [xb(1); yb(1); NOMINAL_BODY_Z];
 air_count = zeros(1, 6);               % 支撑相连续失载计数器
+zmp_cfg = hexapod_zmp_defaults();
+prev_stance_mask = false(1, 6);
+zmp_mode = string(get_struct_field(export_meta, 'zmp_mode', 'on'));
+zmp_control_enabled = strcmpi(zmp_mode, "on");
 
 %% 3. 主仿真循环
 while kk <= Data_Num
@@ -173,6 +182,38 @@ while kk <= Data_Num
     
     [F, ~] = vrobot.get_force_sensor();
     [~, real_body] = vrobot.Main.simxGetObjectPosition(vrobot.ClientID, vrobot.Body_Handle, -1, vrobot.Main.simx_opmode_oneshot);
+    foot_frame = NaN(6, 3);
+    for sensor_idx = 1:6
+        [~, foot_pos] = vrobot.Main.simxGetObjectPosition(vrobot.ClientID, vrobot.Force_sensor_Handle(sensor_idx), -1, vrobot.Main.simx_opmode_oneshot);
+        if exist('foot_pos', 'var') && numel(foot_pos) == 3
+            foot_frame(sensor_idx, :) = foot_pos(:).';
+        end
+    end
+    foot_pos_xyz_log(sim_frame, :) = reshape(foot_frame.', 1, 18);
+    leg_force_xyz_log(sim_frame, :) = reshape(F(:, 1:3).', 1, 18);
+
+    [stance_mask_frame, ~] = hexapod_detect_stance_legs(vecnorm(F(:, 1:3), 2, 2).', prev_stance_mask, zmp_cfg);
+    prev_stance_mask = stance_mask_frame;
+    zmp_eval = hexapod_compute_quasistatic_zmp(foot_frame, F(:, 1:3), stance_mask_frame, zmp_cfg);
+    margin_eval = hexapod_compute_stability_margin(zmp_eval.support_xy, zmp_eval.zmp_xy);
+    zmp_state = struct( ...
+        'scene_name', 'ditch', ...
+        'stability_margin', margin_eval.stability_margin, ...
+        'front_margin', margin_eval.front_margin, ...
+        'lateral_offset', margin_eval.lateral_offset, ...
+        'polygon_valid', margin_eval.polygon_valid);
+    rules = hexapod_apply_scene_zmp_rules(zmp_state, zmp_cfg);
+    if zmp_control_enabled
+        if rules.freeze_progression
+            target_x_offset = min(target_x_offset, current_x_offset);
+            zmp_freeze_flag(sim_frame) = 1;
+        end
+        target_yaw_cmd = target_yaw_cmd + deg2rad(rules.delta_yaw_zmp_deg);
+        target_yaw_cmd = max(-deg2rad(5), min(deg2rad(5), target_yaw_cmd));
+        target_x_offset = target_x_offset - rules.delta_x_guard_m;
+        zmp_yaw_assist_deg(sim_frame) = rules.delta_yaw_zmp_deg;
+        zmp_x_guard_m(sim_frame) = rules.delta_x_guard_m;
+    end
     
     % [模块 B]: 偏航闭环控制 (机身扭转与步幅动态调节)
     if mod(sim_frame, 500) == 0 && sim_frame > WARMUP_FRAMES
@@ -831,10 +872,16 @@ telemetry.realY = realY_log(1:logged_frame_count);
 telemetry.realZ = realZ_log(1:logged_frame_count);
 telemetry.bodyEulerDeg = [bodyRoll_log(1:logged_frame_count), bodyPitch_log(1:logged_frame_count), bodyYaw_log(1:logged_frame_count)];
 telemetry.legForceMag = leg_force_mag;
+telemetry.footPosXYZ = foot_pos_xyz_log(1:logged_frame_count, :);
+telemetry.legForceXYZ = leg_force_xyz_log(1:logged_frame_count, :);
 telemetry.control_dt_sec = Control_T / 1000;
 telemetry.extra = struct();
 telemetry.extra.recover_count_total = recover_count_total;
 telemetry.extra.learned_path = learned_path;
+telemetry.extra.zmp_mode = char(zmp_mode);
+telemetry.extra.zmp_freeze_flag = zmp_freeze_flag(1:logged_frame_count);
+telemetry.extra.zmp_yaw_assist_deg = zmp_yaw_assist_deg(1:logged_frame_count);
+telemetry.extra.zmp_x_guard_m = zmp_x_guard_m(1:logged_frame_count);
 
 meta = struct();
 meta.scene_name = scene_info.scene_name;
