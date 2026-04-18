@@ -1,5 +1,9 @@
 ﻿# Compare 使用说明
 
+如果你的目标不是理解 compare 内部实现，而是让 AI 或人工协作者直接知道“不同轨迹该怎么回放、该优先用哪个入口、命令怎么写”，请先看：
+
+- [轨迹回放操作手册（AI 友好版）](/D:/codehub/hexapod/hexapod_sim_core/docs/trajectory-replay-guide.zh-CN.md)
+
 ## 1. 这套对比流程现在是什么结构
 
 `MAIN/compare` 已整理为 5 个主文件，加 1 个旧入口兼容壳：

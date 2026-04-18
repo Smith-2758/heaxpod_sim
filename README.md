@@ -4,6 +4,10 @@
 
 本仓库用于生成六足机器人关节轨迹，并通过 CoppeliaSim 远程 API 执行仿真，输出受力、轨迹与速度等结果。
 
+如果你的目标是快速判断“该怎么回放某条轨迹、该用 compare 还是老入口、直接执行什么命令”，优先阅读：
+
+- [轨迹回放操作手册（AI 友好版）](/D:/codehub/hexapod/hexapod_sim_core/docs/trajectory-replay-guide.zh-CN.md)
+
 ## 1. Project Scope
 
 当前代码包含两类流程：
